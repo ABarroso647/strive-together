@@ -1,0 +1,41 @@
+[package]
+name = "gym-tracker-bot"
+version = "0.1.0"
+edition = "2024"
+description = "A Discord bot for tracking gym workouts"
+authors = ["Adam Barroso"]
+
+[dependencies]
+# Discord
+poise = "0.6"
+serenity = { version = "0.12", features = ["client", "gateway", "model", "cache"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# Image generation
+resvg = "0.44"
+usvg = "0.44"
+tiny-skia = "0.11"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Environment
+dotenvy = "0.15"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
