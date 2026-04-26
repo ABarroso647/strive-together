@@ -1,0 +1,18 @@
+services:
+  gym-tracker-bot:
+    build: .
+    container_name: gym-tracker-bot
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DATABASE_PATH=/app/data/gym_tracker.db
+      - RUST_LOG=gym_tracker_bot=info,poise=warn,serenity=warn
+    volumes:
+      - ./data:/app/data
+    # Optional: healthcheck
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "gym-tracker-bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
