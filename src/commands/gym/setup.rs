@@ -30,12 +30,21 @@ pub async fn setup(ctx: Context<'_>) -> Result<(), Error> {
                 queries::insert_activity_type(&conn, guild_id, activity_type)?;
             }
 
+            // Create default groups and assign types
+            for (group_name, types) in crate::db::gym::schema::DEFAULT_ACTIVITY_GROUPS {
+                let _ = queries::insert_activity_group(&conn, guild_id, group_name);
+                for activity_type in *types {
+                    let _ = queries::assign_type_to_group(&conn, guild_id, activity_type, group_name);
+                }
+            }
+
             tracing::info!("guild={} user={} cmd=setup channel={}", guild_id, ctx.author().id.get(), channel_id);
             format!(
                 "Gym tracker set up in this channel!\n\
+                Default activity types: **lift** (push, pull, legs, upper, lower) and **cardio** (run, bike, machine_cardio, hiit)\n\
                 Next steps:\n\
                 1. Add users with `/gym add_user @user`\n\
-                2. (Optional) Customize activity types with `/gym add_type` or `/gym remove_type`\n\
+                2. (Optional) Customize types/groups with `/gym add_type`, `/gym group create`, etc.\n\
                 3. Start tracking with `/gym start`"
             )
         }

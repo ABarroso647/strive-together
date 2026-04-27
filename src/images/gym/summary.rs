@@ -23,6 +23,7 @@ pub struct UserSummary {
     pub goal_met: bool,
     pub type_counts: Vec<(String, i32)>,
     pub sub_goals: Vec<SubGoal>,  // empty for Total mode
+    pub is_on_loa: bool,
 }
 
 pub async fn build_period_summary_png(
@@ -51,6 +52,10 @@ pub async fn build_period_summary_png(
                 &conn, guild_id, user_id, &type_counts, &type_group_map,
             )?;
 
+            let on_loa = queries::get_active_loa_for_user(
+                &conn, guild_id, user_id, &period.start_time, &period.end_time,
+            )?.is_some();
+
             let type_vec: Vec<_> = type_counts.into_iter().collect();
             users_data.push((user_id, UserSummary {
                 name: String::new(), // filled after DB scope
@@ -59,6 +64,7 @@ pub async fn build_period_summary_png(
                 goal_met,
                 type_counts: type_vec,
                 sub_goals,
+                is_on_loa: on_loa,
             }));
         }
 
@@ -276,15 +282,18 @@ pub fn generate_summary_image(
             clip_id, MARGIN, card_y, CARD_W, ch
         ));
 
-        // Card background — subtle tint based on goal status
-        let card_bg = if user.goal_met { "#1a2e20" } else { "#2e1a1a" };
+        // Card background and stripe — blue tint for LOA users, goal-based for others
+        let (card_bg, stripe_color) = if user.is_on_loa {
+            ("#1a2840", "#5b8fbd")
+        } else if user.goal_met {
+            ("#1a2e20", "#43b581")
+        } else {
+            ("#2e1a1a", "#f04747")
+        };
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}"/>"##,
             MARGIN, card_y, CARD_W, ch, card_bg
         ));
-
-        // Colored left stripe (clipped to card shape)
-        let stripe_color = if user.goal_met { "#43b581" } else { "#f04747" };
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" clip-path="url(#{})"/>"##,
             MARGIN, card_y, BORDER_W, ch, stripe_color, clip_id
@@ -301,31 +310,53 @@ pub fn generate_summary_image(
             left_x, name_text_y, escape_svg(&display_name)
         ));
 
-        // Goal count X/Y right-aligned
-        let count_str = format!("{}/{}", user.total, user.effective_goal);
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="14" fill="#dcddde" text-anchor="end">{}</text>"##,
-            right_x, name_text_y, escape_svg(&count_str)
-        ));
+        if user.is_on_loa {
+            // Right side: "LOA" badge in blue
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="14" font-weight="bold" fill="#5b8fbd" text-anchor="end">On LOA</text>"##,
+                right_x, name_text_y
+            ));
+            // Workout count (still logged but not goal-tracked)
+            if user.total > 0 {
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="11" fill="#5b8fbd" text-anchor="end">{} logged</text>"##,
+                    right_x, name_text_y + 16, user.total
+                ));
+            }
+        } else {
+            // Goal count X/Y right-aligned
+            let count_str = format!("{}/{}", user.total, user.effective_goal);
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="14" fill="#dcddde" text-anchor="end">{}</text>"##,
+                right_x, name_text_y, escape_svg(&count_str)
+            ));
+            let count_px_w = count_str.len() as u32 * 8 + 6;
+            let (status_sym, status_color) = if user.goal_met { ("✓", "#43b581") } else { ("✗", "#f04747") };
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="{}" text-anchor="end">{}</text>"##,
+                right_x - count_px_w, name_text_y, status_color, status_sym
+            ));
+        }
 
-        // ✓/✗ just left of the count
-        let count_px_w = count_str.len() as u32 * 8 + 6;
-        let (status_sym, status_color) = if user.goal_met { ("✓", "#43b581") } else { ("✗", "#f04747") };
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="{}" text-anchor="end">{}</text>"##,
-            right_x - count_px_w, name_text_y, status_color, status_sym
-        ));
-
-        // Main progress bar
+        // Progress bar
         let bar_x = left_x;
         let bar_y = card_y + CARD_TOP_PAD + NAME_H + BAR_MARGIN;
-        let bar_w = CARD_W - CARD_PAD - BORDER_W - CARD_PAD; // inner width
+        let bar_w = CARD_W - CARD_PAD - BORDER_W - CARD_PAD;
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="3" fill="#36393f" stroke="#4f545c" stroke-width="1"/>"##,
             bar_x, bar_y, bar_w, BAR_H
         ));
-        if user.total == 0 {
-            // Empty state: centered "no workouts" label inside the bar
+        if user.is_on_loa {
+            // Full-width muted blue bar with "goal paused" label
+            svg.push_str(&format!(
+                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="3" fill="#2a4060"/>"##,
+                bar_x, bar_y, bar_w, BAR_H
+            ));
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="9" fill="#5b8fbd" text-anchor="middle" dominant-baseline="middle">goal tracking paused</text>"##,
+                bar_x + bar_w / 2, bar_y + BAR_H / 2
+            ));
+        } else if user.total == 0 {
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="10" fill="#72767d" text-anchor="middle" dominant-baseline="middle">no workouts</text>"##,
                 bar_x + bar_w / 2, bar_y + BAR_H / 2
@@ -344,56 +375,57 @@ pub fn generate_summary_image(
 
         let mut section_y = card_y + CARD_TOP_PAD + NAME_H + BAR_MARGIN + BAR_H + BAR_MARGIN;
 
-        // For Total mode: show explicit "Goal: N workouts/week" label
-        if user.sub_goals.is_empty() {
-            let goal_text = format!("Goal: {} workouts/week", user.effective_goal);
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="11" fill="#72767d">{}</text>"##,
-                left_x, section_y + 14, escape_svg(&goal_text)
-            ));
+        if user.is_on_loa {
+            // Skip sub-goals entirely for LOA users — just pad to match normal height
             section_y += GOAL_LABEL_H;
-        }
-
-        // Sub-goal bars (by_type or by_group)
-        if !user.sub_goals.is_empty() {
-            section_y += SUB_SECTION_GAP;
-            for sub in &user.sub_goals {
-                let text_y = section_y + 16;
-                let (sub_color, sub_sym) = if sub.met { ("#43b581", "✓") } else { ("#f04747", "✗") };
-
-                // Label
+        } else {
+            // For Total mode: show explicit "Goal: N workouts/week" label
+            if user.sub_goals.is_empty() {
+                let goal_text = format!("Goal: {} workouts/week", user.effective_goal);
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#b9bbbe">{}</text>"##,
-                    left_x, text_y, escape_svg(&sub.label)
+                    r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="11" fill="#72767d">{}</text>"##,
+                    left_x, section_y + 14, escape_svg(&goal_text)
                 ));
+                section_y += GOAL_LABEL_H;
+            }
 
-                // Mini bar background
-                let mb_x = left_x + SUB_LABEL_W;
-                let mb_y = section_y + 5;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="8" rx="2" fill="#36393f"/>"##,
-                    mb_x, mb_y, SUB_BAR_W
-                ));
-                // Mini bar fill
-                if sub.target > 0 {
-                    let ratio = (sub.actual as f32 / sub.target as f32).min(1.0);
-                    let fw = (ratio * SUB_BAR_W as f32) as u32;
-                    if fw > 0 {
-                        svg.push_str(&format!(
-                            r##"<rect x="{}" y="{}" width="{}" height="8" rx="2" fill="{}"/>"##,
-                            mb_x, mb_y, fw, sub_color
-                        ));
+            // Sub-goal bars (by_type or by_group)
+            if !user.sub_goals.is_empty() {
+                section_y += SUB_SECTION_GAP;
+                for sub in &user.sub_goals {
+                    let text_y = section_y + 16;
+                    let (sub_color, sub_sym) = if sub.met { ("#43b581", "✓") } else { ("#f04747", "✗") };
+
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#b9bbbe">{}</text>"##,
+                        left_x, text_y, escape_svg(&sub.label)
+                    ));
+
+                    let mb_x = left_x + SUB_LABEL_W;
+                    let mb_y = section_y + 5;
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="8" rx="2" fill="#36393f"/>"##,
+                        mb_x, mb_y, SUB_BAR_W
+                    ));
+                    if sub.target > 0 {
+                        let ratio = (sub.actual as f32 / sub.target as f32).min(1.0);
+                        let fw = (ratio * SUB_BAR_W as f32) as u32;
+                        if fw > 0 {
+                            svg.push_str(&format!(
+                                r##"<rect x="{}" y="{}" width="{}" height="8" rx="2" fill="{}"/>"##,
+                                mb_x, mb_y, fw, sub_color
+                            ));
+                        }
                     }
+
+                    let count_str = format!("{}/{} {}", sub.actual, sub.target, sub_sym);
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" font-weight="bold" fill="{}" text-anchor="end">{}</text>"##,
+                        right_x, text_y, sub_color, escape_svg(&count_str)
+                    ));
+
+                    section_y += SUB_ROW_H;
                 }
-
-                // Count + status
-                let count_str = format!("{}/{} {}", sub.actual, sub.target, sub_sym);
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" font-weight="bold" fill="{}" text-anchor="end">{}</text>"##,
-                    right_x, text_y, sub_color, escape_svg(&count_str)
-                ));
-
-                section_y += SUB_ROW_H;
             }
         }
 

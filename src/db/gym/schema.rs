@@ -184,7 +184,8 @@ CREATE TABLE IF NOT EXISTS gym_loa_requests (
     vote_ends_at TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     loa_start TEXT,
-    loa_end TEXT
+    loa_end TEXT,
+    mention_role_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_gym_loa_requests_status ON gym_loa_requests(status, vote_ends_at);
 
@@ -202,11 +203,20 @@ pub const MIGRATIONS: &[&str] = &[
     "ALTER TABLE gym_guild_config ADD COLUMN rollover_hour INTEGER NOT NULL DEFAULT 12",
     "ALTER TABLE gym_period_results ADD COLUMN loa_exempt INTEGER NOT NULL DEFAULT 0",
     "CREATE TABLE IF NOT EXISTS gym_loa_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, requested_at TEXT NOT NULL, weeks INTEGER NOT NULL, vote_message_id INTEGER, vote_channel_id INTEGER NOT NULL, vote_ends_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', loa_start TEXT, loa_end TEXT)",
+    "ALTER TABLE gym_loa_requests ADD COLUMN mention_role_id INTEGER",
+    // Seed default groups for existing guilds
+    "INSERT OR IGNORE INTO gym_activity_groups (guild_id, group_name) SELECT guild_id, 'lift' FROM gym_guild_config",
+    "INSERT OR IGNORE INTO gym_activity_groups (guild_id, group_name) SELECT guild_id, 'cardio' FROM gym_guild_config",
+    "INSERT OR IGNORE INTO gym_type_group_map (guild_id, activity_type, group_name) SELECT guild_id, name, 'lift' FROM gym_activity_types WHERE name IN ('push', 'pull', 'legs', 'upper', 'lower')",
+    "INSERT OR IGNORE INTO gym_type_group_map (guild_id, activity_type, group_name) SELECT guild_id, name, 'cardio' FROM gym_activity_types WHERE name IN ('run', 'bike', 'machine_cardio', 'hiit')",
 ];
 
 pub const DEFAULT_ACTIVITY_TYPES: &[&str] = &[
-    "push", "pull", "legs", "chest", "shoulders", "back",
-    "cardio", "upper", "lower", "full_body",
-    "arms", "core", "hiit", "yoga", "stretching",
-    "swimming", "cycling", "running", "walking", "sports",
+    "push", "pull", "legs", "upper", "lower",
+    "run", "bike", "machine_cardio", "hiit",
+];
+
+pub const DEFAULT_ACTIVITY_GROUPS: &[(&str, &[&str])] = &[
+    ("lift", &["push", "pull", "legs", "upper", "lower"]),
+    ("cardio", &["run", "bike", "machine_cardio", "hiit"]),
 ];

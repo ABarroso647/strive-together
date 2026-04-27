@@ -37,12 +37,10 @@ pub struct LoaRequest {
     pub id: i64,
     pub guild_id: u64,
     pub user_id: u64,
-    pub requested_at: String,
     pub weeks: i64,
     pub vote_message_id: Option<u64>,
     pub vote_channel_id: u64,
-    pub vote_ends_at: String,
-    pub status: String,   // "pending", "approved", "denied"
     pub loa_start: Option<String>,
     pub loa_end: Option<String>,
+    pub mention_role_id: Option<u64>,
 }

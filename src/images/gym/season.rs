@@ -22,13 +22,20 @@ pub async fn build_season_stats_png(
     http: &serenity::Http,
     guild_id: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let (user_stats, type_stats, week_count, active_types, season_label) = {
+    let (user_stats, type_stats, week_count, active_types, season_label, season_date_range) = {
         let conn = db.conn();
 
         // Determine which season to show (current season, or all-time if none)
-        let (season_id, season_label) = match queries::get_current_season(&conn, guild_id)? {
-            Some(s) => (Some(s.id), s.name.clone()),
-            None => (None, "Season Stats".to_string()),
+        let (season_id, season_label, season_date_range) = match queries::get_current_season(&conn, guild_id)? {
+            Some(s) => {
+                let start = &s.start_time[..10];
+                let range = match &s.end_time {
+                    None => format!("{} → today", start),
+                    Some(end) => format!("{} → {}", start, &end[..10]),
+                };
+                (Some(s.id), s.name.clone(), range)
+            }
+            None => (None, "Season Stats".to_string(), String::new()),
         };
 
         let user_stats = queries::get_season_user_stats(&conn, guild_id, season_id)?;
@@ -54,7 +61,7 @@ pub async fn build_season_stats_png(
             type_usage.get(b).unwrap_or(&0).cmp(type_usage.get(a).unwrap_or(&0))
         });
 
-        (user_stats, type_stats, week_count, active_types, season_label)
+        (user_stats, type_stats, week_count, active_types, season_label, season_date_range)
     };
 
     // Fetch Discord names outside DB scope
@@ -69,7 +76,7 @@ pub async fn build_season_stats_png(
         rows.push(SeasonUserRow { name, total, goals_met: met, goals_missed: missed, type_counts });
     }
 
-    generate_season_table(&rows, &active_types, week_count, &season_label)
+    generate_season_table(&rows, &active_types, week_count, &season_label, &season_date_range)
 }
 
 pub fn generate_season_table(
@@ -77,6 +84,7 @@ pub fn generate_season_table(
     activity_types: &[String],
     week_count: i32,
     title: &str,
+    date_range: &str,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     const PADDING: u32 = 12;
     const HEADER_H: u32 = 56;
@@ -112,9 +120,14 @@ pub fn generate_season_table(
         PADDING, PADDING + 22, escape_svg(title)
     ));
     let week_label = if week_count == 1 { "1 week".to_string() } else { format!("{} weeks", week_count) };
+    let subheader = if date_range.is_empty() {
+        format!("{} of data", week_label)
+    } else {
+        format!("{} · {} of data", date_range, week_label)
+    };
     svg.push_str(&format!(
-        r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#b9bbbe">{} of data</text>"##,
-        PADDING, PADDING + 42, escape_svg(&week_label)
+        r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#b9bbbe">{}</text>"##,
+        PADDING, PADDING + 42, escape_svg(&subheader)
     ));
 
     // Column header row

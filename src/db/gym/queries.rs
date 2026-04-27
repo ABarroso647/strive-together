@@ -912,10 +912,11 @@ pub fn insert_loa_request(
     vote_ends_at: &str,
     loa_start: &str,
     loa_end: &str,
+    mention_role_id: Option<u64>,
 ) -> Result<i64, rusqlite::Error> {
     conn.execute(
-        "INSERT INTO gym_loa_requests (guild_id, user_id, requested_at, weeks, vote_channel_id, vote_ends_at, loa_start, loa_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        params![guild_id, user_id, requested_at, weeks, vote_channel_id, vote_ends_at, loa_start, loa_end],
+        "INSERT INTO gym_loa_requests (guild_id, user_id, requested_at, weeks, vote_channel_id, vote_ends_at, loa_start, loa_end, mention_role_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![guild_id, user_id, requested_at, weeks, vote_channel_id, vote_ends_at, loa_start, loa_end, mention_role_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -939,40 +940,36 @@ pub fn set_loa_vote_message(conn: &Connection, id: i64, message_id: u64) -> Resu
 
 pub fn get_pending_loa_for_user(conn: &Connection, guild_id: u64, user_id: u64) -> Result<Option<LoaRequest>, rusqlite::Error> {
     conn.query_row(
-        "SELECT id, guild_id, user_id, requested_at, weeks, vote_message_id, vote_channel_id, vote_ends_at, status, loa_start, loa_end FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status = 'pending'",
+        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status = 'pending'",
         params![guild_id, user_id],
         |row| Ok(LoaRequest {
             id: row.get(0)?,
             guild_id: row.get(1)?,
             user_id: row.get(2)?,
-            requested_at: row.get(3)?,
-            weeks: row.get(4)?,
-            vote_message_id: row.get(5)?,
-            vote_channel_id: row.get(6)?,
-            vote_ends_at: row.get(7)?,
-            status: row.get(8)?,
-            loa_start: row.get(9)?,
-            loa_end: row.get(10)?,
+            weeks: row.get(3)?,
+            vote_message_id: row.get(4)?,
+            vote_channel_id: row.get(5)?,
+            loa_start: row.get(6)?,
+            loa_end: row.get(7)?,
+            mention_role_id: row.get(8)?,
         }),
     ).optional()
 }
 
 pub fn get_expired_pending_loas(conn: &Connection, now_str: &str) -> Result<Vec<LoaRequest>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, guild_id, user_id, requested_at, weeks, vote_message_id, vote_channel_id, vote_ends_at, status, loa_start, loa_end FROM gym_loa_requests WHERE status = 'pending' AND vote_ends_at <= ?"
+        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE status = 'pending' AND vote_ends_at <= ?"
     )?;
     let rows = stmt.query_map([now_str], |row| Ok(LoaRequest {
         id: row.get(0)?,
         guild_id: row.get(1)?,
         user_id: row.get(2)?,
-        requested_at: row.get(3)?,
-        weeks: row.get(4)?,
-        vote_message_id: row.get(5)?,
-        vote_channel_id: row.get(6)?,
-        vote_ends_at: row.get(7)?,
-        status: row.get(8)?,
-        loa_start: row.get(9)?,
-        loa_end: row.get(10)?,
+        weeks: row.get(3)?,
+        vote_message_id: row.get(4)?,
+        vote_channel_id: row.get(5)?,
+        loa_start: row.get(6)?,
+        loa_end: row.get(7)?,
+        mention_role_id: row.get(8)?,
     }))?;
     rows.collect()
 }
@@ -995,20 +992,37 @@ pub fn get_active_loa_for_user(
     period_end: &str,
 ) -> Result<Option<LoaRequest>, rusqlite::Error> {
     conn.query_row(
-        "SELECT id, guild_id, user_id, requested_at, weeks, vote_message_id, vote_channel_id, vote_ends_at, status, loa_start, loa_end FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status = 'approved' AND loa_start <= ? AND loa_end >= ?",
+        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status IN ('approved', 'pending') AND loa_start <= ? AND loa_end >= ?",
         params![guild_id, user_id, period_end, period_start],
         |row| Ok(LoaRequest {
             id: row.get(0)?,
             guild_id: row.get(1)?,
             user_id: row.get(2)?,
-            requested_at: row.get(3)?,
-            weeks: row.get(4)?,
-            vote_message_id: row.get(5)?,
-            vote_channel_id: row.get(6)?,
-            vote_ends_at: row.get(7)?,
-            status: row.get(8)?,
-            loa_start: row.get(9)?,
-            loa_end: row.get(10)?,
+            weeks: row.get(3)?,
+            vote_message_id: row.get(4)?,
+            vote_channel_id: row.get(5)?,
+            loa_start: row.get(6)?,
+            loa_end: row.get(7)?,
+            mention_role_id: row.get(8)?,
+        }),
+    ).optional()
+}
+
+/// Look up a pending LOA by its vote message ID (for real-time reaction handling).
+pub fn get_loa_by_vote_message(conn: &Connection, message_id: u64) -> Result<Option<LoaRequest>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE vote_message_id = ? AND status = 'pending'",
+        [message_id],
+        |row| Ok(LoaRequest {
+            id: row.get(0)?,
+            guild_id: row.get(1)?,
+            user_id: row.get(2)?,
+            weeks: row.get(3)?,
+            vote_message_id: row.get(4)?,
+            vote_channel_id: row.get(5)?,
+            loa_start: row.get(6)?,
+            loa_end: row.get(7)?,
+            mention_role_id: row.get(8)?,
         }),
     ).optional()
 }

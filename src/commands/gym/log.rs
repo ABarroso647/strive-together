@@ -9,6 +9,9 @@ use poise::serenity_prelude as serenity;
 #[poise::command(slash_command, guild_only)]
 pub async fn log(
     ctx: Context<'_>,
+    #[description = "Activity group"]
+    #[autocomplete = "autocomplete_group"]
+    group: String,
     #[description = "Activity type"]
     #[autocomplete = "autocomplete_activity_type"]
     activity_type: String,
@@ -16,6 +19,7 @@ pub async fn log(
     #[description = "Additional user 2"] user3: Option<serenity::User>,
     #[description = "Optional image"] image: Option<serenity::Attachment>,
 ) -> Result<(), Error> {
+    let _ = group; // used only for autocomplete filtering
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
     let activity_type = activity_type.trim().to_lowercase();
 
@@ -131,6 +135,9 @@ pub async fn log(
 #[poise::command(slash_command, guild_only)]
 pub async fn log_past(
     ctx: Context<'_>,
+    #[description = "Activity group"]
+    #[autocomplete = "autocomplete_group"]
+    group: String,
     #[description = "Activity type"]
     #[autocomplete = "autocomplete_activity_type"]
     activity_type: String,
@@ -141,6 +148,7 @@ pub async fn log_past(
     #[description = "Additional user 1"] user2: Option<serenity::User>,
     #[description = "Additional user 2"] user3: Option<serenity::User>,
 ) -> Result<(), Error> {
+    let _ = group; // used only for autocomplete filtering
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
     let activity_type = activity_type.trim().to_lowercase();
 
@@ -234,7 +242,37 @@ pub async fn log_past(
     Ok(())
 }
 
-/// Autocomplete function for activity types
+/// Autocomplete for group names
+async fn autocomplete_group<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<String> {
+    let guild_id = match ctx.guild_id() {
+        Some(id) => id.get(),
+        None => return vec![],
+    };
+    let db = &ctx.data().db;
+    let conn = db.conn();
+    queries::get_activity_groups(&conn, guild_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|g| g.to_lowercase().contains(&partial.to_lowercase()))
+        .take(25)
+        .collect()
+}
+
+/// Walk into SubCommand/SubCommandGroup nesting to find the actual param options
+fn resolve_options(opts: &[serenity::CommandDataOption]) -> &[serenity::CommandDataOption] {
+    for opt in opts {
+        match &opt.value {
+            serenity::CommandDataOptionValue::SubCommand(inner)
+            | serenity::CommandDataOptionValue::SubCommandGroup(inner) => {
+                return resolve_options(inner);
+            }
+            _ => {}
+        }
+    }
+    opts
+}
+
+/// Autocomplete function for activity types — filters by group if one is selected
 async fn autocomplete_activity_type<'a>(
     ctx: Context<'a>,
     partial: &'a str,
@@ -244,10 +282,28 @@ async fn autocomplete_activity_type<'a>(
         None => return vec![],
     };
 
-    let types = {
-        let db = &ctx.data().db;
-        let conn = db.conn();
-        queries::get_activity_types(&conn, guild_id).unwrap_or_default()
+    // group param is nested under the subcommand wrapper — resolve it
+    let group_filter = if let poise::Context::Application(app_ctx) = ctx {
+        let opts = resolve_options(&app_ctx.interaction.data.options);
+        opts.iter()
+            .find(|o| o.name == "group")
+            .and_then(|o| {
+                if let serenity::CommandDataOptionValue::String(s) = &o.value {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+    } else {
+        None
+    };
+
+    let db = &ctx.data().db;
+    let conn = db.conn();
+
+    let types = match group_filter {
+        Some(ref group) => queries::get_group_types(&conn, guild_id, group).unwrap_or_default(),
+        None => queries::get_activity_types(&conn, guild_id).unwrap_or_default(),
     };
 
     types
