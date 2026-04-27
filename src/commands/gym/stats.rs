@@ -118,12 +118,14 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
 pub async fn summary(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
 
-    let period = {
+    let (period, user_ids) = {
         let db = &ctx.data().db;
         let conn = db.conn();
         let config = queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
         if !config.started { return Err("Tracking hasn't started yet.".into()); }
-        queries::get_current_period(&conn, guild_id)?.ok_or("No active period.")?
+        let period = queries::get_current_period(&conn, guild_id)?.ok_or("No active period.")?;
+        let user_ids = queries::get_users(&conn, guild_id)?;
+        (period, user_ids)
     };
 
     ctx.defer().await?;
@@ -136,8 +138,9 @@ pub async fn summary(ctx: Context<'_>) -> Result<(), Error> {
     ).await?;
 
     tracing::debug!("guild={} user={} cmd=summary", guild_id, ctx.author().id.get());
+    let mentions = user_ids.iter().map(|uid| format!("<@{}>", uid)).collect::<Vec<_>>().join(" ");
     let attachment = serenity::CreateAttachment::bytes(image_data, "summary.png");
-    ctx.send(poise::CreateReply::default().attachment(attachment)).await?;
+    ctx.send(poise::CreateReply::default().content(mentions).attachment(attachment)).await?;
     Ok(())
 }
 

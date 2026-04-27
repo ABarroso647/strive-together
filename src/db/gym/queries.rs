@@ -50,6 +50,35 @@ pub fn update_default_goal(conn: &Connection, guild_id: u64, goal: i32) -> Resul
     Ok(())
 }
 
+/// Update the total_goal for every user who is still "on the default" —
+/// meaning their goal equals `old_goal` and they have no type or group customizations.
+/// Returns the number of users updated.
+pub fn update_default_goal_for_users(
+    conn: &Connection,
+    guild_id: u64,
+    old_goal: i32,
+    new_goal: i32,
+) -> Result<usize, rusqlite::Error> {
+    let rows = conn.execute(
+        "UPDATE gym_user_goal_config
+         SET total_goal = ?
+         WHERE guild_id = ?
+           AND total_goal = ?
+           AND NOT EXISTS (
+               SELECT 1 FROM gym_user_type_goals
+               WHERE gym_user_type_goals.guild_id = gym_user_goal_config.guild_id
+                 AND gym_user_type_goals.user_id = gym_user_goal_config.user_id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM gym_user_group_goals
+               WHERE gym_user_group_goals.guild_id = gym_user_goal_config.guild_id
+                 AND gym_user_group_goals.user_id = gym_user_goal_config.user_id
+           )",
+        params![new_goal, guild_id, old_goal],
+    )?;
+    Ok(rows)
+}
+
 pub fn update_rollover_hour(conn: &Connection, guild_id: u64, hour: u32) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE gym_guild_config SET rollover_hour = ? WHERE guild_id = ?",

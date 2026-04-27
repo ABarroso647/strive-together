@@ -30,7 +30,7 @@ pub async fn add_user(
 
         // Check if user already exists
         if queries::user_exists(&conn, guild_id, user_id)? {
-            format!("{} is already in the gym tracker.", user.name)
+            format!("<@{}> is already in the gym tracker.", user_id)
         } else {
             queries::insert_user(&conn, guild_id, user_id, config.default_goal)?;
 
@@ -42,8 +42,8 @@ pub async fn add_user(
 
             tracing::info!("guild={} admin={} cmd=user_add target_user={}", guild_id, ctx.author().id.get(), user_id);
             format!(
-                "Added {} to the gym tracker with a goal of {} workouts/week.",
-                user.name, config.default_goal
+                "Added <@{}> to the gym tracker with a goal of {} workouts/week.",
+                user_id, config.default_goal
             )
         }
     };
@@ -72,9 +72,9 @@ pub async fn remove_user(
 
         if queries::delete_user(&conn, guild_id, user_id)? {
             tracing::info!("guild={} admin={} cmd=user_remove target_user={}", guild_id, ctx.author().id.get(), user_id);
-            format!("Removed {} from the gym tracker.", user.name)
+            format!("Removed <@{}> from the gym tracker.", user_id)
         } else {
-            format!("{} was not in the gym tracker.", user.name)
+            format!("<@{}> was not in the gym tracker.", user_id)
         }
     };
 
