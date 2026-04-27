@@ -149,15 +149,14 @@ async fn main() {
             Box::pin(async move {
                 tracing::info!("Bot is ready! Registering commands...");
 
-                // Register commands — instantly to dev guild, or globally in production
-                if std::env::var("ENVIRONMENT").as_deref() == Ok("development") {
-                    let guild_id = serenity::GuildId::new(541468644782243875);
-                    poise::builtins::register_in_guild(ctx, &framework.options().commands, guild_id).await?;
-                    tracing::info!("Commands registered to dev guild!");
-                } else {
-                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                    tracing::info!("Commands registered globally!");
+                // Register commands instantly to every guild the bot is in
+                let guilds = ctx.cache.guilds();
+                for guild_id in &guilds {
+                    if let Err(e) = poise::builtins::register_in_guild(ctx, &framework.options().commands, *guild_id).await {
+                        tracing::warn!("Failed to register commands to guild {}: {}", guild_id, e);
+                    }
                 }
+                tracing::info!("Commands registered to {} guild(s)", guilds.len());
 
                 // Start background tasks for each tracker
                 tasks::start_gym_weekly_check(http, data.clone());
