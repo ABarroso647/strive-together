@@ -4,6 +4,60 @@ mod images;
 mod tasks;
 mod util;
 
+use db::gym::models::LoaRequest;
+
+/// Returns true if every member of `role_id` (excluding the bot and the LOA requester)
+/// has cast either a ✅ or ❌ reaction on the vote message.
+async fn check_all_role_members_voted(
+    ctx: &serenity::Context,
+    loa: &LoaRequest,
+    guild_id: serenity::GuildId,
+    role_id: u64,
+) -> bool {
+    use poise::serenity_prelude::{ChannelId, MessageId, ReactionType, UserId};
+
+    let bot_id = ctx.cache.current_user().id;
+    let requester_id = UserId::new(loa.user_id);
+    let role_id = serenity::RoleId::new(role_id);
+
+    // Collect members who have the role (from cache)
+    let role_members: Vec<UserId> = match ctx.cache.guild(guild_id) {
+        Some(guild) => guild
+            .members
+            .values()
+            .filter(|m| m.roles.contains(&role_id) && m.user.id != bot_id && m.user.id != requester_id)
+            .map(|m| m.user.id)
+            .collect(),
+        None => return false,
+    };
+
+    if role_members.is_empty() {
+        return false;
+    }
+
+    let channel = ChannelId::new(loa.vote_channel_id);
+    let msg_id = match loa.vote_message_id {
+        Some(id) => MessageId::new(id),
+        None => return false,
+    };
+
+    // Fetch voters (up to 100 each — sufficient for typical Discord servers)
+    let yes_users = ctx.http
+        .get_reaction_users(channel, msg_id, &ReactionType::Unicode("✅".to_string()), 100, None)
+        .await
+        .unwrap_or_default();
+    let no_users = ctx.http
+        .get_reaction_users(channel, msg_id, &ReactionType::Unicode("❌".to_string()), 100, None)
+        .await
+        .unwrap_or_default();
+
+    let voted: std::collections::HashSet<u64> = yes_users.iter().chain(no_users.iter())
+        .map(|u| u.id.get())
+        .collect();
+
+    role_members.iter().all(|uid| voted.contains(&uid.get()))
+}
+
 use db::gym::queries;
 use poise::serenity_prelude as serenity;
 use rusqlite;
@@ -69,17 +123,68 @@ async fn main() {
                     match event {
                         serenity::FullEvent::ReactionAdd { add_reaction } => {
                             if let serenity::ReactionType::Unicode(emoji) = &add_reaction.emoji {
+                                let message_id = add_reaction.message_id.get();
+                                let bot_id = ctx.cache.current_user().id;
+
                                 if emoji == "🔥" {
                                     if let Some(user_id) = add_reaction.user_id {
-                                        // Skip the bot's own reaction
-                                        if user_id == ctx.cache.current_user().id { return Ok(()); }
-                                        let message_id = add_reaction.message_id.get();
+                                        if user_id == bot_id { return Ok(()); }
                                         let conn = data.db.conn();
-                                        // Only record if this message is a tracked log post
                                         if queries::get_log_message_guild(&conn, message_id)?.is_some() {
                                             let now_str = crate::util::time::format_datetime(&chrono::Utc::now());
                                             queries::upsert_log_reaction(&conn, message_id, user_id.get(), &now_str)?;
                                             tracing::debug!("🔥 reaction recorded: message={} user={}", message_id, user_id);
+                                        }
+                                    }
+                                } else if emoji == "✅" || emoji == "❌" {
+                                    if let Some(user_id) = add_reaction.user_id {
+                                        if user_id == bot_id { return Ok(()); }
+
+                                        // Check if this is a pending LOA vote message
+                                        let loa = {
+                                            let conn = data.db.conn();
+                                            queries::get_loa_by_vote_message(&conn, message_id)?
+                                        };
+
+                                        if let Some(loa) = loa {
+                                            // Requester cannot vote on their own LOA — remove the reaction
+                                            if user_id.get() == loa.user_id {
+                                                let channel = serenity::ChannelId::new(loa.vote_channel_id);
+                                                let _ = ctx.http.delete_reaction(
+                                                    channel,
+                                                    add_reaction.message_id,
+                                                    user_id,
+                                                    &add_reaction.emoji,
+                                                ).await;
+                                                tracing::debug!(
+                                                    "Removed LOA self-vote: loa_id={} user={}",
+                                                    loa.id, user_id
+                                                );
+                                                return Ok(());
+                                            }
+
+                                            // If a mention role was set, auto-close once all role members have voted
+                                            if let Some(role_id) = loa.mention_role_id {
+                                                if let Some(guild_id) = add_reaction.guild_id {
+                                                    let all_voted = check_all_role_members_voted(
+                                                        ctx, &loa, guild_id, role_id,
+                                                    ).await;
+                                                    if all_voted {
+                                                        tracing::info!(
+                                                            "All role members voted on LOA id={} — resolving early",
+                                                            loa.id
+                                                        );
+                                                        if let Err(e) = tasks::gym::resolve_loa_vote(
+                                                            &ctx.http, data, &loa,
+                                                        ).await {
+                                                            tracing::error!(
+                                                                "Early LOA resolve failed id={}: {}",
+                                                                loa.id, e
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

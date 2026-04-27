@@ -26,6 +26,7 @@ pub type Context<'a> = poise::Context<'a, Data, Error>;
         "setup::period_info",
         "setup::set_period_end",
         "debug::force_rollover",
+        "debug::force_register",
         "users::user",
         "types::types_cmd",
         "groups::group",

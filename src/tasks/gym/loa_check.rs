@@ -71,7 +71,7 @@ async fn check_loa_votes(
     Ok(())
 }
 
-async fn resolve_loa_vote(
+pub async fn resolve_loa_vote(
     http: &Http,
     data: &Data,
     loa: &crate::db::gym::models::LoaRequest,
@@ -123,16 +123,17 @@ async fn resolve_loa_vote(
     );
 
     let result_msg = if approved {
+        let start_str = loa.loa_start.as_deref().map(|s| &s[..10]).unwrap_or("?");
         let end_str = loa.loa_end.as_deref().map(|s| &s[..10]).unwrap_or("?");
         if yes_votes == 0 && no_votes == 0 {
             format!(
-                "✅ **LOA Approved** (no votes cast — auto-approved) — <@{}>'s {}-week leave is granted through {}. Goal stats are paused until then.",
-                loa.user_id, loa.weeks, end_str
+                "✅ **LOA Approved** (no votes cast — auto-approved) — <@{}>'s {}-week leave is granted ({} → {}). Goal stats are paused until then.",
+                loa.user_id, loa.weeks, start_str, end_str
             )
         } else {
             format!(
-                "✅ **LOA Approved** ({} for, {} against) — <@{}>'s {}-week leave is granted through {}. Goal stats are paused until then.",
-                yes_votes, no_votes, loa.user_id, loa.weeks, end_str
+                "✅ **LOA Approved** ({} for, {} against) — <@{}>'s {}-week leave is granted ({} → {}). Goal stats are paused until then.",
+                yes_votes, no_votes, loa.user_id, loa.weeks, start_str, end_str
             )
         }
     } else {
