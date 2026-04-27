@@ -3,8 +3,14 @@ use crate::db::gym::queries;
 use crate::Error;
 use poise::serenity_prelude as serenity;
 
+/// Manage tracked users
+#[poise::command(slash_command, guild_only, subcommands("add_user", "remove_user", "list_users", "import_user", "set_type_total", "set_goal_stats"))]
+pub async fn user(_ctx: Context<'_>) -> Result<(), Error> {
+    Ok(())
+}
+
 /// Add a user to the gym tracker
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "add")]
 pub async fn add_user(
     ctx: Context<'_>,
     #[description = "User to add"] user: serenity::User,
@@ -34,6 +40,7 @@ pub async fn add_user(
                 queries::set_user_type_total(&conn, guild_id, user_id, &activity_type, 0)?;
             }
 
+            tracing::info!("guild={} admin={} cmd=user_add target_user={}", guild_id, ctx.author().id.get(), user_id);
             format!(
                 "Added {} to the gym tracker with a goal of {} workouts/week.",
                 user.name, config.default_goal
@@ -46,7 +53,7 @@ pub async fn add_user(
 }
 
 /// Remove a user from the gym tracker
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "remove")]
 pub async fn remove_user(
     ctx: Context<'_>,
     #[description = "User to remove"] user: serenity::User,
@@ -64,6 +71,7 @@ pub async fn remove_user(
         }
 
         if queries::delete_user(&conn, guild_id, user_id)? {
+            tracing::info!("guild={} admin={} cmd=user_remove target_user={}", guild_id, ctx.author().id.get(), user_id);
             format!("Removed {} from the gym tracker.", user.name)
         } else {
             format!("{} was not in the gym tracker.", user.name)
@@ -75,7 +83,7 @@ pub async fn remove_user(
 }
 
 /// List all users in the gym tracker
-#[poise::command(slash_command, guild_only)]
+#[poise::command(slash_command, guild_only, rename = "list")]
 pub async fn list_users(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
 
@@ -108,7 +116,7 @@ pub async fn list_users(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Import user data from JSON
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "import")]
 pub async fn import_user(
     ctx: Context<'_>,
     #[description = "User to import data for"] user: serenity::User,
@@ -179,7 +187,7 @@ pub async fn import_user(
 }
 
 /// Set a user's total for a specific activity type
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "set_type")]
 pub async fn set_type_total(
     ctx: Context<'_>,
     #[description = "User"] user: serenity::User,
@@ -212,6 +220,7 @@ pub async fn set_type_total(
         queries::set_user_type_total(&conn, guild_id, user_id, &activity_type, count)?;
     }
 
+    tracing::info!("guild={} admin={} cmd=user_set_type target={} type={} count={}", guild_id, ctx.author().id.get(), user_id, activity_type, count);
     ctx.say(format!(
         "Set {}'s **{}** total to **{}**.",
         user.name, activity_type, count
@@ -220,7 +229,7 @@ pub async fn set_type_total(
 }
 
 /// Set a user's goal statistics
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "set_goals")]
 pub async fn set_goal_stats(
     ctx: Context<'_>,
     #[description = "User"] user: serenity::User,
@@ -248,6 +257,7 @@ pub async fn set_goal_stats(
         queries::set_user_goal_stats(&conn, guild_id, user_id, achieved, missed)?;
     }
 
+    tracing::info!("guild={} admin={} cmd=user_set_goals target={} achieved={} missed={}", guild_id, ctx.author().id.get(), user_id, achieved, missed);
     ctx.say(format!(
         "Set {}'s goals to **{}** achieved, **{}** missed.",
         user.name, achieved, missed
