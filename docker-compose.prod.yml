@@ -1,0 +1,9 @@
+services:
+  gym-tracker-bot:
+    image: ghcr.io/abarroso647/strive-together:latest
+    container_name: gym-tracker-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

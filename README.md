@@ -121,18 +121,34 @@ Permissions: `Send Messages`, `Attach Files`, `Use Slash Commands`, `Add Reactio
 
 ### Running
 
+**Option 1 — Docker (recommended)**
+
+Builds from source and runs with dev mode enabled:
 ```bash
 cp .env.example .env
-# Add DISCORD_TOKEN and optionally DATABASE_PATH, ENVIRONMENT=development
+# Fill in DISCORD_TOKEN
 
-# Docker:
 docker compose up -d
+```
 
-# Local:
+**Option 2 — Pre-built image**
+
+No build step — pulls the latest published image:
+```bash
+cp .env.example .env
+# Fill in DISCORD_TOKEN
+
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Option 3 — Run locally**
+```bash
+cp .env.example .env
 cargo run
 ```
 
-Set `ENVIRONMENT=development` to register slash commands to your dev guild instantly instead of globally.
+`ENVIRONMENT=development` (set in `.env` or the compose file) registers slash commands to your dev guild instantly. Without it, commands register globally and can take up to an hour to propagate.
 
 ## Data
 
