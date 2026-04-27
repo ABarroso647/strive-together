@@ -149,7 +149,9 @@ async fn main() {
             Box::pin(async move {
                 tracing::info!("Bot is ready! Registering commands...");
 
-                // Register commands instantly to every guild the bot is in
+                // Register commands to every guild for instant propagation.
+                // Fine for small deployments — at 100+ guilds, switch to
+                // register_globally() to avoid startup API call volume.
                 let guilds = ctx.cache.guilds();
                 for guild_id in &guilds {
                     if let Err(e) = poise::builtins::register_in_guild(ctx, &framework.options().commands, *guild_id).await {
