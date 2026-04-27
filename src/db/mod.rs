@@ -22,19 +22,12 @@ impl Database {
         })
     }
 
-    /// Initialize all tracker schemas and run migrations
+    /// Initialize all tracker schemas
     pub fn init_schema(&self) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
         // Initialize gym tracker schema
         conn.execute_batch(gym::schema::SCHEMA)?;
-
-        // Run migrations (errors silently ignored — handles already-applied migrations)
-        for migration in gym::schema::MIGRATIONS {
-            if let Err(e) = conn.execute_batch(migration) {
-                tracing::debug!("Migration skipped (already applied?): {} — {}", migration, e);
-            }
-        }
 
         // Future: Initialize other tracker schemas here
         // conn.execute_batch(calories::schema::SCHEMA)?;

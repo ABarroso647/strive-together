@@ -4,9 +4,7 @@ mod images;
 mod tasks;
 mod util;
 
-use db::gym::queries;
 use poise::serenity_prelude as serenity;
-use rusqlite;
 use std::sync::Arc;
 
 /// User data shared across all commands
@@ -64,76 +62,15 @@ async fn main() {
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: commands::commands(),
-            event_handler: |ctx, event, _framework, data| {
-                Box::pin(async move {
-                    match event {
-                        serenity::FullEvent::ReactionAdd { add_reaction } => {
-                            if let serenity::ReactionType::Unicode(emoji) = &add_reaction.emoji {
-                                if emoji == "🔥" {
-                                    if let Some(user_id) = add_reaction.user_id {
-                                        // Skip the bot's own reaction
-                                        if user_id == ctx.cache.current_user().id { return Ok(()); }
-                                        let message_id = add_reaction.message_id.get();
-                                        let conn = data.db.conn();
-                                        // Only record if this message is a tracked log post
-                                        if queries::get_log_message_guild(&conn, message_id)?.is_some() {
-                                            let now_str = crate::util::time::format_datetime(&chrono::Utc::now());
-                                            queries::upsert_log_reaction(&conn, message_id, user_id.get(), &now_str)?;
-                                            tracing::debug!("🔥 reaction recorded: message={} user={}", message_id, user_id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        serenity::FullEvent::ReactionRemove { removed_reaction } => {
-                            if let serenity::ReactionType::Unicode(emoji) = &removed_reaction.emoji {
-                                if emoji == "🔥" {
-                                    if let Some(user_id) = removed_reaction.user_id {
-                                        let message_id = removed_reaction.message_id.get();
-                                        let conn = data.db.conn();
-                                        if queries::get_log_message_guild(&conn, message_id)?.is_some() {
-                                            queries::remove_log_reaction(&conn, message_id, user_id.get())?;
-                                            tracing::debug!("🔥 reaction removed: message={} user={}", message_id, user_id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                    Ok(())
-                })
-            },
             on_error: |error| {
                 Box::pin(async move {
                     match error {
                         poise::FrameworkError::Command { error, ctx, .. } => {
-                            let is_internal = error.downcast_ref::<rusqlite::Error>().is_some();
-                            let msg = if is_internal {
-                                tracing::error!(
-                                    "Internal error in /{}: {:?}",
-                                    ctx.command().qualified_name,
-                                    error
-                                );
-                                "Something went wrong on our end. Please try again, or let an admin know if it keeps happening.".to_string()
-                            } else {
-                                tracing::debug!(
-                                    "Command user error in /{}: {}",
-                                    ctx.command().qualified_name,
-                                    error
-                                );
-                                error.to_string()
-                            };
-                            let _ = ctx.send(
-                                poise::CreateReply::default().content(msg).ephemeral(true)
-                            ).await;
+                            tracing::error!("Command error: {}", error);
+                            let _ = ctx.say(format!("An error occurred: {}", error)).await;
                         }
                         poise::FrameworkError::ArgumentParse { error, ctx, .. } => {
-                            let _ = ctx.send(
-                                poise::CreateReply::default()
-                                    .content(format!("Invalid argument: {}", error))
-                                    .ephemeral(true)
-                            ).await;
+                            let _ = ctx.say(format!("Invalid argument: {}", error)).await;
                         }
                         other => {
                             tracing::error!("Framework error: {:?}", other);
@@ -149,15 +86,9 @@ async fn main() {
             Box::pin(async move {
                 tracing::info!("Bot is ready! Registering commands...");
 
-                // Register commands — instantly to dev guild, or globally in production
-                if std::env::var("ENVIRONMENT").as_deref() == Ok("development") {
-                    let guild_id = serenity::GuildId::new(541468644782243875);
-                    poise::builtins::register_in_guild(ctx, &framework.options().commands, guild_id).await?;
-                    tracing::info!("Commands registered to dev guild!");
-                } else {
-                    poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                    tracing::info!("Commands registered globally!");
-                }
+                // Register commands globally (or use guild_id for testing)
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                tracing::info!("Commands registered!");
 
                 // Start background tasks for each tracker
                 tasks::start_gym_weekly_check(http, data.clone());

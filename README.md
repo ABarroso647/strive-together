@@ -1,6 +1,6 @@
 # Strive Together Bot
 
-A Discord bot for tracking fitness goals with weekly accountability. Currently supports gym workout tracking, with an extensible architecture for future trackers.
+A Discord bot for tracking fitness goals with weekly accountability. Currently supports gym workout tracking, with an extensible architecture for future trackers (calories, etc.).
 
 ## Documentation
 
@@ -11,143 +11,160 @@ A Discord bot for tracking fitness goals with weekly accountability. Currently s
 ## Features
 
 ### Gym Tracker
-- **Workout Logging**: Log workouts with activity types, optional image proof, multi-user logging
-- **Flexible Goals**: Total weekly goal + optional additive type/group requirements (all must be met)
-- **Activity Groups**: Group types (e.g. push/pull/legs → "gym group") and set group-level goals
-- **Weekly Summaries**: Auto-generated summary image posted at week rollover
-- **Season Stats**: Season-scoped totals image with per-user breakdown
-- **History**: Heatmap overview for all users; per-user table with week-by-week breakdown and goal changes
-- **Seasons**: Named seasons (Szn 1, Szn 2, …); history is scoped per season
-- **Reaction Tracking**: 🔥 reactions on log posts are recorded for end-of-season highlights
-- **Image Storage**: Workout image URLs stored for end-of-season recap
-- **Leave of Absence**: Community-voted LOA requests pause goal tracking while still counting logs
+- **Workout Logging**: Log workouts with different activity types
+- **Flexible Goals**: Set total weekly goals or per-activity-type goals
+- **Weekly Summaries**: Auto-generated image summaries at week end
+- **Leaderboards**: All-time totals with rankings
+- **Multi-user Support**: Track multiple users per server
+- **History**: View week-by-week progress
 
 ## Commands
 
-All gym tracker commands are under the `/gym` parent:
+All gym tracker commands are under the `/gym` parent command:
 
-### Admin
-| Command | Description |
-|---|---|
-| `/gym setup` | Initialize tracker in this channel |
-| `/gym start` | Start tracking — creates first period and Szn 1 |
-| `/gym stop` | Pause tracking |
-| `/gym info` | Show config, users, current period |
-| `/gym config goal <n>` | Set default weekly goal for new users |
-| `/gym config rollover <hour>` | Set the UTC hour on Sunday when the week rolls over (0–23) |
-| `/gym set_period_end <time\|now>` | Shift when the current week ends |
-| `/gym add_user @user` | Add a user |
-| `/gym remove_user @user` | Remove a user |
-| `/gym list_users` | List tracked users |
-| `/gym import_user @user <json>` | Bulk-import historical data |
-| `/gym set_type_total @user <type> <n>` | Manually set a type total |
-| `/gym set_goal_stats @user <met> <missed>` | Manually set goal stats |
-| `/gym add_type <name>` | Add an activity type |
-| `/gym remove_type <name>` | Remove an activity type |
-| `/gym list_types` | List activity types |
-| `/gym group create <name>` | Create an activity group |
-| `/gym group delete <name>` | Delete a group |
-| `/gym group list` | Show groups and their assigned types |
-| `/gym group assign <group> <type>` | Assign a type to a group |
-| `/gym group unassign <type>` | Remove a type from its group |
-| `/gym season new` | End current season and start the next |
-| `/gym season end` | End the current season without starting a new one |
-| `/gym season list` | List all seasons |
-| `/gym force_rollover` | Manually trigger a weekly rollover (dev/admin) |
+### Admin Commands (require ADMINISTRATOR)
+- `/gym setup` - Initialize the gym tracker in a channel
+- `/gym start` - Start tracking (creates first weekly period)
+- `/gym stop` - Stop tracking
+- `/gym info` - Show current tracker configuration
+- `/gym config goal <amount>` - Set default goal for new users
+- `/gym add_user @user` - Add a user to the tracker
+- `/gym remove_user @user` - Remove a user from the tracker
+- `/gym add_type <name>` - Add an activity type
+- `/gym remove_type <name>` - Remove an activity type
+- `/gym import_user @user <json>` - Import user data from JSON
+- `/gym set_type_total @user <type> <count>` - Set a user's type total
+- `/gym set_goal_stats @user <achieved> <missed>` - Set goal statistics
 
-### User
-| Command | Description |
-|---|---|
-| `/gym log <type> [user2] [user3] [image]` | Log a workout |
-| `/gym log_past <type> <weeks_ago>` | Retroactively log for a past week |
-| `/gym status` | Your current week progress embed |
-| `/gym summary` | Weekly summary image for all users |
-| `/gym totals` | Season stats image |
-| `/gym history [@user] [season]` | Heatmap overview or per-user table |
-| `/gym goal total <n>` | Set your total weekly goal |
-| `/gym goal by_type <type> <n>` | Add a type requirement (additive) |
-| `/gym goal by_group <group> <n>` | Add a group requirement (additive) |
-| `/gym goal view` | View all your active goal constraints |
-| `/gym goal reset` | Reset to server default, clear extra requirements |
-| `/gym loa request <weeks> [start_date] [mention_role]` | Request a leave of absence (community vote) |
-
-## Goal System
-
-Goals are always **additive AND constraints**:
-- `total_goal` is the floor — you must always hit it
-- Type goals and group goals are extra requirements on top
-- Example: `total=5 + push≥3 + cardio≥1` means you need 5+ workouts, at least 3 of which are push, at least 1 cardio
+### User Commands
+- `/gym log <type> [user2] [user3] [image]` - Log a workout
+- `/gym goal total <count>` - Set your total weekly goal
+- `/gym goal by_type <type> <count>` - Set a per-type goal
+- `/gym goal view` - View your goal settings
+- `/gym status` - Show your current week progress
+- `/gym summary` - Show weekly summary image for all users
+- `/gym totals` - Show all-time leaderboard image
+- `/gym history [@user]` - Show week-by-week history
+- `/gym list_users` - List tracked users
+- `/gym list_types` - List activity types
 
 ## Architecture
 
+The bot is designed to support multiple trackers:
+
 ```
 src/
-├── main.rs                    # Entry point, event handler (🔥 reactions)
-├── commands/gym/
-│   ├── setup.rs               # setup, start, stop, info, config, period_info, set_period_end
-│   ├── users.rs               # add/remove/list/import user, set_type_total, set_goal_stats
-│   ├── types.rs               # add_type, remove_type, list_types
-│   ├── groups.rs              # group create/delete/list/assign/unassign
-│   ├── goals.rs               # goal total/by_type/by_group/view/reset
-│   ├── log.rs                 # log, log_past
-│   ├── stats.rs               # status, summary, totals, history
-│   ├── season.rs              # season new/end/list
-│   ├── loa.rs                 # loa request (leave of absence)
-│   └── debug.rs               # force_rollover
-├── db/gym/
-│   ├── schema.rs              # All gym_ tables + indexes
-│   ├── models.rs              # GuildConfig, Period, UserGoalConfig, Season
-│   └── queries.rs             # All DB query functions
-├── images/gym/
-│   ├── summary.rs             # Weekly per-user card layout (progress bar + type grid)
-│   ├── season.rs              # Season stats table image
-│   └── history.rs             # Heatmap overview + per-user history table
-├── tasks/gym/
-│   ├── weekly_check.rs        # Smart-sleep rollover task, posts summary + season images
-│   └── loa_check.rs           # Smart-sleep LOA vote resolution task
+├── main.rs              # Entry point
+├── commands/
+│   ├── mod.rs           # Command registration
+│   └── gym/             # Gym tracker commands
+│       ├── mod.rs
+│       ├── setup.rs
+│       ├── users.rs
+│       ├── types.rs
+│       ├── log.rs
+│       ├── goals.rs
+│       └── stats.rs
+├── db/
+│   ├── mod.rs           # Database wrapper
+│   └── gym/             # Gym tracker database
+│       ├── mod.rs
+│       ├── schema.rs    # Tables prefixed with gym_
+│       ├── models.rs
+│       └── queries.rs
+├── images/
+│   ├── mod.rs           # Shared rendering utilities
+│   └── gym/             # Gym tracker images
+│       ├── mod.rs
+│       ├── summary.rs
+│       └── totals.rs
+├── tasks/
+│   ├── mod.rs           # Task registration
+│   └── gym/             # Gym tracker background tasks
+│       └── weekly_check.rs
 └── util/
-    └── time.rs                # format_datetime, parse_datetime, get_weekly_period_bounds_with_hour
+    ├── mod.rs
+    └── time.rs          # Shared time utilities
 ```
+
+To add a new tracker (e.g., calories):
+1. Create `src/commands/calories/` with commands
+2. Create `src/db/calories/` with schema (tables prefixed with `calories_`)
+3. Create `src/images/calories/` for any image generation
+4. Create `src/tasks/calories/` for background tasks
+5. Register in respective `mod.rs` files
 
 ## Setup
 
 ### Prerequisites
-- Docker and Docker Compose, OR Rust 1.80+
-- Discord Bot Token with Server Members Intent + Message Content Intent enabled
+- Docker and Docker Compose
+- Discord Bot Token
 
-### Discord Bot Permissions
-Scopes: `bot`, `applications.commands`
-Permissions: `Send Messages`, `Attach Files`, `Use Slash Commands`, `Add Reactions`, `Read Message History`
+### Discord Bot Setup
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create a new application
+3. Go to "Bot" and create a bot
+4. Enable these Privileged Gateway Intents:
+   - Server Members Intent
+   - Message Content Intent
+5. Copy the bot token
+6. Go to "OAuth2" > "URL Generator"
+7. Select scopes: `bot`, `applications.commands`
+8. Select permissions: `Send Messages`, `Attach Files`, `Use Slash Commands`
+9. Use the generated URL to invite the bot to your server
 
-### Running
+### Deployment
 
-```bash
-cp .env.example .env
-# Add DISCORD_TOKEN and optionally DATABASE_PATH, ENVIRONMENT=development
+1. Clone this repository
+2. Copy `.env.example` to `.env` and add your Discord token:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your DISCORD_TOKEN
+   ```
 
-# Docker:
-docker compose up -d
+3. Build and run with Docker Compose:
+   ```bash
+   docker compose up -d
+   ```
 
-# Local:
-cargo run
-```
+4. Check logs:
+   ```bash
+   docker compose logs -f
+   ```
 
-Set `ENVIRONMENT=development` to register slash commands to your dev guild instantly instead of globally.
+### Local Development
 
-## Data
+1. Install Rust (1.80+)
+2. Copy `.env.example` to `.env` and configure
+3. Run:
+   ```bash
+   cargo run
+   ```
 
-SQLite at `./data/gym_tracker.db` (volume-mounted in Docker). All tables prefixed `gym_`.
+## Data Persistence
 
-Key tables: `gym_logs`, `gym_periods`, `gym_period_results`, `gym_period_type_counts`, `gym_seasons`, `gym_user_goal_config`, `gym_user_type_goals`, `gym_user_group_goals`, `gym_goal_history`, `gym_log_messages`, `gym_log_attachments`, `gym_log_reactions`
+The SQLite database is stored in `./data/gym_tracker.db`. The data directory is mounted as a volume in Docker to persist data across container restarts.
+
+All gym tracker tables are prefixed with `gym_` to allow multiple trackers to coexist.
+
+## Activity Types
+
+Default activity types include:
+- push, pull, legs, chest, shoulders, back
+- cardio, upper, lower, full_body
+- arms, core, hiit, yoga, stretching
+- swimming, cycling, running, walking, sports
+
+Admins can add or remove types with `/gym add_type` and `/gym remove_type`.
 
 ## Weekly Cycle
 
-Periods run Sunday→Sunday. On startup and after each rollover, the bot calculates exactly when the next period ends and sleeps until then (plus a 30-second buffer). On rollover it:
-1. Archives results to `gym_period_results` and `gym_period_type_counts`
-2. Updates `gym_user_totals` and `gym_user_type_totals`
-3. Posts weekly summary image to the configured channel
-4. Posts season stats image (if a season is active)
-5. Creates the next period
+- Tracking periods run Sunday to Sunday
+- At week end, the bot automatically:
+  - Saves period results
+  - Updates all-time totals
+  - Posts a summary image to the configured channel
+  - Creates a new period
 
 ## License
 

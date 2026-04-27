@@ -3,14 +3,8 @@ use crate::db::gym::queries;
 use crate::Error;
 use poise::serenity_prelude as serenity;
 
-/// Manage activity types
-#[poise::command(slash_command, guild_only, rename = "type", subcommands("add_type", "remove_type", "list_types"))]
-pub async fn types_cmd(_ctx: Context<'_>) -> Result<(), Error> {
-    Ok(())
-}
-
 /// Add an activity type
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "add")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
 pub async fn add_type(
     ctx: Context<'_>,
     #[description = "Name of the activity type (lowercase, no spaces)"] name: String,
@@ -49,7 +43,6 @@ pub async fn add_type(
                 queries::set_user_type_total(&conn, guild_id, user_id, &name, 0)?;
             }
 
-            tracing::info!("guild={} user={} cmd=type_add name={}", guild_id, ctx.author().id.get(), name);
             format!("Added activity type **{}**.", name)
         }
     };
@@ -59,7 +52,7 @@ pub async fn add_type(
 }
 
 /// Remove an activity type
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "remove")]
+#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR")]
 pub async fn remove_type(
     ctx: Context<'_>,
     #[description = "Name of the activity type to remove"]
@@ -80,7 +73,6 @@ pub async fn remove_type(
 
         // Try to delete the type
         if queries::delete_activity_type(&conn, guild_id, &name)? {
-            tracing::info!("guild={} user={} cmd=type_remove name={}", guild_id, ctx.author().id.get(), name);
             format!(
                 "Removed activity type **{}**.\n\
                 Note: Existing logs with this type are preserved but won't appear in new summaries.",
@@ -96,7 +88,7 @@ pub async fn remove_type(
 }
 
 /// List all activity types
-#[poise::command(slash_command, guild_only, rename = "list")]
+#[poise::command(slash_command, guild_only)]
 pub async fn list_types(ctx: Context<'_>) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
 

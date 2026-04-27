@@ -6,9 +6,8 @@ use resvg::usvg::{Options, Tree};
 
 /// Render an SVG string to PNG bytes (shared utility)
 pub fn render_svg_to_png(svg: &str, width: u32, height: u32) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut options = Options::default();
-    options.fontdb_mut().load_system_fonts();
-    let tree = Tree::from_str(svg, &options)?;
+    // Parse SVG
+    let tree = Tree::from_str(svg, &Options::default())?;
 
     // Create pixmap
     let mut pixmap = Pixmap::new(width, height)
