@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS gym_guild_config (
     guild_id INTEGER PRIMARY KEY,
     channel_id INTEGER NOT NULL,
     default_goal INTEGER NOT NULL DEFAULT 5,
-    started INTEGER NOT NULL DEFAULT 0
+    started INTEGER NOT NULL DEFAULT 0,
+    rollover_hour INTEGER NOT NULL DEFAULT 12
 );
 
 -- Seasons (for grouping periods, future feature)
@@ -110,11 +111,98 @@ CREATE TABLE IF NOT EXISTS gym_user_type_totals (
     PRIMARY KEY (guild_id, user_id, activity_type)
 );
 
+-- Activity groups (e.g. "gym", "cardio", "wellness")
+CREATE TABLE IF NOT EXISTS gym_activity_groups (
+    guild_id INTEGER NOT NULL,
+    group_name TEXT NOT NULL,
+    PRIMARY KEY (guild_id, group_name)
+);
+
+-- Maps each activity type to a group (one group per type)
+CREATE TABLE IF NOT EXISTS gym_type_group_map (
+    guild_id INTEGER NOT NULL,
+    activity_type TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    PRIMARY KEY (guild_id, activity_type),
+    FOREIGN KEY (guild_id, group_name) REFERENCES gym_activity_groups(guild_id, group_name) ON DELETE CASCADE
+);
+
+-- User group-based goals (for by_group mode)
+CREATE TABLE IF NOT EXISTS gym_user_group_goals (
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    group_name TEXT NOT NULL,
+    goal INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, group_name)
+);
+
+-- Discord message IDs for log posts (for reactions + end-of-season highlights)
+CREATE TABLE IF NOT EXISTS gym_log_messages (
+    message_id INTEGER PRIMARY KEY,
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    period_id INTEGER NOT NULL
+);
+
+-- Image attachment URLs uploaded alongside log commands
+CREATE TABLE IF NOT EXISTS gym_log_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+);
+
+-- 🔥 reactions tracked on log posts
+CREATE TABLE IF NOT EXISTS gym_log_reactions (
+    message_id INTEGER NOT NULL,
+    reactor_user_id INTEGER NOT NULL,
+    reacted_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, reactor_user_id)
+);
+
+-- Goal change audit log (shown in per-user history)
+CREATE TABLE IF NOT EXISTS gym_goal_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    changed_at TEXT NOT NULL,
+    description TEXT NOT NULL
+);
+
+-- Leave of absence requests (community vote)
+CREATE TABLE IF NOT EXISTS gym_loa_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    requested_at TEXT NOT NULL,
+    weeks INTEGER NOT NULL,
+    vote_message_id INTEGER,
+    vote_channel_id INTEGER NOT NULL,
+    vote_ends_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    loa_start TEXT,
+    loa_end TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_gym_loa_requests_status ON gym_loa_requests(status, vote_ends_at);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_gym_logs_period_user ON gym_logs(period_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_gym_logs_guild_user ON gym_logs(guild_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_gym_periods_guild_current ON gym_periods(guild_id, is_current);
+CREATE INDEX IF NOT EXISTS idx_gym_log_messages_guild ON gym_log_messages(guild_id);
+CREATE INDEX IF NOT EXISTS idx_gym_goal_history_user ON gym_goal_history(guild_id, user_id, changed_at);
 "#;
+
+/// Migrations applied after the main schema — each statement is run independently
+/// and errors are silently ignored (handles already-applied migrations on existing DBs).
+pub const MIGRATIONS: &[&str] = &[
+    "ALTER TABLE gym_guild_config ADD COLUMN rollover_hour INTEGER NOT NULL DEFAULT 12",
+    "ALTER TABLE gym_period_results ADD COLUMN loa_exempt INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS gym_loa_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, requested_at TEXT NOT NULL, weeks INTEGER NOT NULL, vote_message_id INTEGER, vote_channel_id INTEGER NOT NULL, vote_ends_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', loa_start TEXT, loa_end TEXT)",
+];
 
 pub const DEFAULT_ACTIVITY_TYPES: &[&str] = &[
     "push", "pull", "legs", "chest", "shoulders", "back",
