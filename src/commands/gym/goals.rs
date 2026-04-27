@@ -5,7 +5,7 @@ use crate::Error;
 use chrono::Utc;
 
 /// Set your weekly goal
-#[poise::command(slash_command, guild_only, subcommands("goal_total", "goal_by_type", "goal_by_group", "goal_view", "goal_reset"))]
+#[poise::command(slash_command, guild_only, subcommands("goal_total", "goal_by_type", "goal_by_group", "goal_view", "goal_overview", "goal_reset"))]
 pub async fn goal(_ctx: Context<'_>) -> Result<(), Error> {
     // Parent command - subcommands handle the actual work
     Ok(())
@@ -111,17 +111,14 @@ pub async fn goal_view(ctx: Context<'_>) -> Result<(), Error> {
         let db = &ctx.data().db;
         let conn = db.conn();
 
-        // Check if tracker is set up
         if queries::get_guild_config(&conn, guild_id)?.is_none() {
             return Err("Gym tracker not set up.".into());
         }
 
-        // Check if user is registered
         if !queries::user_exists(&conn, guild_id, user_id)? {
             return Err("You're not in the gym tracker. Ask an admin to add you.".into());
         }
 
-        // Get user's goal config
         let goal_config = queries::get_user_goal_config(&conn, guild_id, user_id)?
             .ok_or("Could not find your goal configuration.")?;
 
@@ -130,7 +127,6 @@ pub async fn goal_view(ctx: Context<'_>) -> Result<(), Error> {
             format!("Total: **{} workouts/week** (always required)", goal_config.total_goal),
         ];
 
-        // Type-specific constraints
         let mut stmt = conn.prepare(
             "SELECT activity_type, goal FROM gym_user_type_goals WHERE guild_id = ? AND user_id = ? ORDER BY activity_type"
         )?;
@@ -146,7 +142,6 @@ pub async fn goal_view(ctx: Context<'_>) -> Result<(), Error> {
             }
         }
 
-        // Group-specific constraints
         let group_goals = queries::get_user_group_goals(&conn, guild_id, user_id)?;
         if !group_goals.is_empty() {
             lines.push("Group requirements (AND):".to_string());
@@ -157,6 +152,69 @@ pub async fn goal_view(ctx: Context<'_>) -> Result<(), Error> {
 
         lines.push(String::new());
         lines.push("Adjust with `/gym goal total`, `/gym goal by_type`, `/gym goal by_group`, or `/gym goal reset`.".to_string());
+
+        lines.join("\n")
+    };
+
+    ctx.say(response).await?;
+    Ok(())
+}
+
+/// Show goal settings for all tracked users
+#[poise::command(slash_command, guild_only, rename = "overview")]
+pub async fn goal_overview(ctx: Context<'_>) -> Result<(), Error> {
+    let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
+
+    let response = {
+        let db = &ctx.data().db;
+        let conn = db.conn();
+
+        let config = queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
+        let user_ids = queries::get_users(&conn, guild_id)?;
+
+        if user_ids.is_empty() {
+            return Err("No users in the tracker yet.".into());
+        }
+
+        let mut lines = vec![format!("**Goal Overview** (server default: {})", config.default_goal)];
+
+        for uid in &user_ids {
+            let goal_config = match queries::get_user_goal_config(&conn, guild_id, *uid)? {
+                Some(gc) => gc,
+                None => continue,
+            };
+
+            let on_default = goal_config.total_goal == config.default_goal;
+
+            let mut parts: Vec<String> = Vec::new();
+
+            // Total goal — mark if on default
+            if on_default {
+                parts.push(format!("{}/week", goal_config.total_goal));
+            } else {
+                parts.push(format!("**{}/week**", goal_config.total_goal));
+            }
+
+            // Type requirements
+            let mut stmt = conn.prepare(
+                "SELECT activity_type, goal FROM gym_user_type_goals WHERE guild_id = ? AND user_id = ? ORDER BY activity_type"
+            )?;
+            let type_goals: Vec<(String, i32)> = stmt
+                .query_map(rusqlite::params![guild_id, uid], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (t, g) in &type_goals {
+                parts.push(format!("{} ≥ {}", t, g));
+            }
+
+            // Group requirements
+            let group_goals = queries::get_user_group_goals(&conn, guild_id, *uid)?;
+            for (g, c) in &group_goals {
+                parts.push(format!("{} ≥ {}", g, c));
+            }
+
+            lines.push(format!("<@{}> — {}", uid, parts.join(", ")));
+        }
 
         lines.join("\n")
     };

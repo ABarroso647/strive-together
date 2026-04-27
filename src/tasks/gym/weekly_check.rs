@@ -238,7 +238,8 @@ pub async fn rollover_period(
 
     let channel = ChannelId::new(guild_config.channel_id);
 
-    let summary_header = format!("**Weekly Summary — {} to {}**", period_start, period_end);
+    let mentions = users_data.iter().map(|(uid, _, _, _)| format!("<@{}>", uid)).collect::<Vec<_>>().join(" ");
+    let summary_header = format!("**Weekly Summary — {} to {}**\n{}", period_start, period_end, mentions);
     channel.send_message(http, serenity::CreateMessage::new()
         .content(summary_header)
         .add_file(serenity::CreateAttachment::bytes(summary_data, "weekly_summary.png"))

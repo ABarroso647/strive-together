@@ -270,6 +270,9 @@ async fn main() {
                 }
                 tracing::info!("Commands registered to {} guild(s)", guilds.len());
 
+                // Set bot presence
+                ctx.set_activity(Some(serenity::ActivityData::playing("No painZ No gainZ")));
+
                 // Start background tasks for each tracker
                 tasks::start_gym_weekly_check(http, data.clone());
                 tracing::info!("Background tasks started!");

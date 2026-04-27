@@ -21,7 +21,6 @@ This guide walks you through setting up and running the Strive Together bot loca
    - **Save this token** - you'll need it in Step 2
    - Scroll down to **"Privileged Gateway Intents"**
    - Enable **Server Members Intent** ✓
-   - Enable **Message Content Intent** ✓
    - Click "Save Changes"
 
 4. Go to **"OAuth2" → "URL Generator"** (left sidebar)
@@ -32,6 +31,8 @@ This guide walks you through setting up and running the Strive Together bot loca
      - Send Messages
      - Attach Files
      - Use Slash Commands
+     - Add Reactions
+     - Read Message History
    - Copy the generated URL at the bottom
 
 5. Open that URL in your browser
@@ -41,10 +42,6 @@ This guide walks you through setting up and running the Strive Together bot loca
 ## Step 2: Configure the Bot
 
 ```bash
-# Navigate to the project
-cd discord-bot
-
-# Create your environment file
 cp .env.example .env
 ```
 
@@ -67,7 +64,7 @@ First run will take a few minutes to compile dependencies. You should see:
 ```
 INFO gym_tracker_bot: Database initialized at data/gym_tracker.db
 INFO gym_tracker_bot: Bot is ready! Registering commands...
-INFO gym_tracker_bot: Commands registered!
+INFO gym_tracker_bot: Commands registered to 1 guild(s)
 INFO gym_tracker_bot: Background tasks started!
 INFO gym_tracker_bot: Starting bot...
 ```
@@ -80,16 +77,16 @@ Open Discord and go to your test server. Try these commands in order:
 
 ### Initial Setup (Admin)
 ```
-/gym setup              → Initializes the tracker in the current channel
-/gym add_user @YourName → Adds yourself to the tracker
-/gym start              → Begins the first tracking week
+/gym setup                   → Initializes the tracker in the current channel
+/gym user add @YourName      → Adds yourself to the tracker
+/gym start                   → Begins the first tracking week
 ```
 
 ### Log Some Workouts
 ```
-/gym log push           → Log a push workout
-/gym log cardio         → Log a cardio workout  
-/gym log legs           → Log a legs workout
+/gym log lift push           → Log a push workout
+/gym log cardio run          → Log a run
+/gym log lift legs           → Log a legs workout
 ```
 
 ### Check Your Progress
@@ -101,9 +98,10 @@ Open Discord and go to your test server. Try these commands in order:
 
 ### Customize Your Goals
 ```
-/gym goal view          → See your current goal settings
-/gym goal total 3       → Change goal to 3 workouts/week
-/gym goal by_type push 2 → Require 2 push workouts specifically
+/gym goal view              → See your current goal settings
+/gym goal total 3           → Change goal to 3 workouts/week
+/gym goal by_type push 2    → Require 2 push workouts specifically
+/gym goal by_group lift 3   → Require 3 lift workouts specifically
 ```
 
 ## Common Issues
@@ -115,7 +113,7 @@ Your `.env` file is missing or doesn't have the token. Make sure:
 - No quotes around the token
 
 ### Commands don't appear in Discord
-- Slash commands can take up to an hour to register globally
+- Commands register instantly to each guild on startup
 - Try restarting the bot
 - Make sure the bot has `applications.commands` scope
 
@@ -123,7 +121,7 @@ Your `.env` file is missing or doesn't have the token. Make sure:
 Run `/gym setup` in the channel first.
 
 ### "You're not in the gym tracker"
-An admin needs to run `/gym add_user @you` to add you.
+An admin needs to run `/gym user add @you` to add you.
 
 ### Bot shows online but doesn't respond
 - Check terminal for error messages

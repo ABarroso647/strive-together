@@ -186,19 +186,23 @@ pub async fn config_goal(
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().ok_or("Must be used in a guild")?.get();
 
-    {
+    let updated_users = {
         let db = &ctx.data().db;
         let conn = db.conn();
 
-        if queries::get_guild_config(&conn, guild_id)?.is_none() {
-            return Err("Gym tracker not set up.".into());
-        }
-
+        let config = queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
+        let updated = queries::update_default_goal_for_users(&conn, guild_id, config.default_goal, amount)?;
         queries::update_default_goal(&conn, guild_id, amount)?;
-    }
+        updated
+    };
 
-    tracing::info!("guild={} user={} cmd=config_goal amount={}", guild_id, ctx.author().id.get(), amount);
-    ctx.say(format!("Default goal set to **{}** workouts per week.", amount)).await?;
+    tracing::info!("guild={} user={} cmd=config_goal amount={} updated_users={}", guild_id, ctx.author().id.get(), amount, updated_users);
+    let msg = if updated_users > 0 {
+        format!("Default goal set to **{}** workouts per week. {} user(s) on the default had their goal updated automatically.", amount, updated_users)
+    } else {
+        format!("Default goal set to **{}** workouts per week.", amount)
+    };
+    ctx.say(msg).await?;
     Ok(())
 }
 

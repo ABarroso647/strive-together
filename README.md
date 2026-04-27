@@ -36,15 +36,15 @@ All gym tracker commands are under the `/gym` parent:
 | `/gym config goal <n>` | Set default weekly goal for new users |
 | `/gym config rollover <hour>` | Set the UTC hour on Sunday when the week rolls over (0–23) |
 | `/gym set_period_end <time\|now>` | Shift when the current week ends |
-| `/gym add_user @user` | Add a user |
-| `/gym remove_user @user` | Remove a user |
-| `/gym list_users` | List tracked users |
-| `/gym import_user @user <json>` | Bulk-import historical data |
-| `/gym set_type_total @user <type> <n>` | Manually set a type total |
-| `/gym set_goal_stats @user <met> <missed>` | Manually set goal stats |
-| `/gym add_type <name>` | Add an activity type |
+| `/gym user add @user` | Add a user |
+| `/gym user remove @user` | Remove a user |
+| `/gym user list` | List tracked users |
+| `/gym user import @user <json>` | Bulk-import historical data |
+| `/gym user set_type_total @user <type> <n>` | Manually set a type total |
+| `/gym user set_goal_stats @user <met> <missed>` | Manually set goal stats |
+| `/gym add_type <group> <name>` | Add an activity type (assigned to a group) |
 | `/gym remove_type <name>` | Remove an activity type |
-| `/gym list_types` | List activity types |
+| `/gym list_types` | List activity types grouped by group |
 | `/gym group create <name>` | Create an activity group |
 | `/gym group delete <name>` | Delete a group |
 | `/gym group list` | Show groups and their assigned types |
@@ -58,8 +58,8 @@ All gym tracker commands are under the `/gym` parent:
 ### User
 | Command | Description |
 |---|---|
-| `/gym log <type> [user2] [user3] [image]` | Log a workout |
-| `/gym log_past <type> <weeks_ago>` | Retroactively log for a past week |
+| `/gym log <group> <type> [user2] [user3] [image]` | Log a workout |
+| `/gym log_past <group> <type> <weeks_ago>` | Retroactively log for a past week |
 | `/gym status` | Your current week progress embed |
 | `/gym summary` | Weekly summary image for all users |
 | `/gym totals` | Season stats image |

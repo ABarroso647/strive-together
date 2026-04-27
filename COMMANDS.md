@@ -18,7 +18,7 @@ Initialize the gym tracker in the current channel.
   - Creates guild configuration
   - Sets the current channel as the announcement channel
   - Adds default activity types (push, pull, legs, cardio, etc.)
-- **Next steps**: Add users with `/gym add_user`, then `/gym start`
+- **Next steps**: Add users with `/gym user add`, then `/gym start`
 
 #### `/gym start`
 Begin tracking workouts.
@@ -85,7 +85,7 @@ Override when the current period ends.
 
 ### User Management
 
-#### `/gym add_user <user>`
+#### `/gym user add <user>`
 Add a user to the gym tracker.
 
 | Parameter | Type | Description |
@@ -98,7 +98,7 @@ Add a user to the gym tracker.
   - Sets their goal to the guild default
   - Initializes their totals to zero
 
-#### `/gym remove_user <user>`
+#### `/gym user remove <user>`
 Remove a user from the tracker.
 
 | Parameter | Type | Description |
@@ -108,10 +108,10 @@ Remove a user from the tracker.
 - **Permissions**: Administrator
 - **Note**: Historical log data is preserved
 
-#### `/gym list_users`
+#### `/gym user list`
 Show all tracked users.
 
-#### `/gym import_user <user> <json>`
+#### `/gym user import <user> <json>`
 Import historical data for a user.
 
 | Parameter | Type | Description |
@@ -134,7 +134,7 @@ Import historical data for a user.
 }
 ```
 
-#### `/gym set_type_total <user> <activity_type> <count>`
+#### `/gym user set_type_total <user> <activity_type> <count>`
 Manually set a user's all-time count for a specific type.
 
 | Parameter | Type | Description |
@@ -145,7 +145,7 @@ Manually set a user's all-time count for a specific type.
 
 - **Permissions**: Administrator
 
-#### `/gym set_goal_stats <user> <achieved> <missed>`
+#### `/gym user set_goal_stats <user> <achieved> <missed>`
 Manually set a user's goal statistics.
 
 | Parameter | Type | Description |
@@ -160,16 +160,17 @@ Manually set a user's goal statistics.
 
 ### Activity Types
 
-#### `/gym add_type <name>`
-Add a new activity type.
+#### `/gym add_type <group> <name>`
+Add a new activity type, assigned to a group.
 
 | Parameter | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
+| `group` | string | autocomplete | Activity group to assign this type to |
 | `name` | string | max 32 chars | Activity name |
 
 - **Permissions**: Administrator
 - **Normalization**: Converted to lowercase, spaces become underscores
-- **Example**: `/gym add_type "Olympic Lifting"` → `olympic_lifting`
+- **Example**: `/gym add_type lift "Olympic Lifting"` → `olympic_lifting` in the `lift` group
 
 #### `/gym remove_type <name>`
 Remove an activity type.
@@ -182,9 +183,7 @@ Remove an activity type.
 - **Note**: Existing logs with this type are preserved
 
 #### `/gym list_types`
-Show all configured activity types.
-
-- **Default types**: push, pull, legs, chest, shoulders, back, cardio, upper, lower, full_body, arms, core, hiit, yoga, stretching, swimming, cycling, running, walking, sports
+Show all configured activity types, grouped by their activity group.
 
 ---
 
@@ -233,28 +232,30 @@ Remove a type from its group.
 
 ### Logging Workouts
 
-#### `/gym log <activity_type> [user2] [user3] [image]`
+#### `/gym log <group> <activity_type> [user2] [user3] [image]`
 Log a workout.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `activity_type` | string | Yes | Type of workout (autocomplete) |
+| `group` | string | Yes | Activity group (autocomplete) |
+| `activity_type` | string | Yes | Type of workout (autocomplete, filtered by group) |
 | `user2` | @mention | No | Additional user to log for |
 | `user3` | @mention | No | Another additional user |
 | `image` | attachment | No | Proof photo |
 
 - **Who can use**: Any tracked user
 - **Examples**:
-  - `/gym log push` — log push workout for yourself
-  - `/gym log cardio @friend1 @friend2` — log for yourself and 2 others
-  - `/gym log legs [attach image]` — log with a gym photo (shown as [📷](url))
+  - `/gym log lift push` — log push workout for yourself
+  - `/gym log cardio run @friend1 @friend2` — log for yourself and 2 others
+  - `/gym log lift legs [attach image]` — log with a gym photo (shown as [📷](url))
 
-#### `/gym log_past <activity_type> <weeks_ago>`
+#### `/gym log_past <group> <activity_type> <weeks_ago>`
 Retroactively log a workout for a past period.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `activity_type` | string | Type (autocomplete) |
+| `group` | string | Activity group (autocomplete) |
+| `activity_type` | string | Type (autocomplete, filtered by group) |
 | `weeks_ago` | integer | 1–4 weeks back |
 
 ---
@@ -428,23 +429,23 @@ On startup (and after each rollover), the bot calculates exactly when the next p
 | `/gym config goal` | Administrator |
 | `/gym config rollover` | Administrator |
 | `/gym set_period_end` | Administrator |
-| `/gym add_user` | Administrator |
-| `/gym remove_user` | Administrator |
+| `/gym user add` | Administrator |
+| `/gym user remove` | Administrator |
 | `/gym add_type` | Administrator |
 | `/gym remove_type` | Administrator |
 | `/gym group create` | Administrator |
 | `/gym group delete` | Administrator |
 | `/gym group assign` | Administrator |
 | `/gym group unassign` | Administrator |
-| `/gym import_user` | Administrator |
-| `/gym set_type_total` | Administrator |
-| `/gym set_goal_stats` | Administrator |
+| `/gym user import` | Administrator |
+| `/gym user set_type_total` | Administrator |
+| `/gym user set_goal_stats` | Administrator |
 | `/gym season new` | Administrator |
 | `/gym season end` | Administrator |
 | `/gym force_rollover` | Administrator |
 | `/gym info` | Anyone |
 | `/gym period_info` | Anyone |
-| `/gym list_users` | Anyone |
+| `/gym user list` | Anyone |
 | `/gym list_types` | Anyone |
 | `/gym group list` | Anyone |
 | `/gym season list` | Anyone |
