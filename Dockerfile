@@ -1,50 +1,43 @@
 # Build stage
-FROM rust:1.83-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Install build dependencies (pkg-config needed for some crates; no openssl needed — rusqlite is bundled)
 RUN apt-get update && apt-get install -y \
     pkg-config \
-    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
+# Copy manifests first for dependency layer caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create a dummy main.rs to build dependencies
+# Build dependencies only with a stub binary — cached unless Cargo.toml/Cargo.lock change
 RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+# Remove stub artifacts so cargo rebuilds the real binary on next step
+RUN rm -f target/release/gym-tracker-bot target/release/deps/gym_tracker_bot*
 
-# Build dependencies only (will be cached)
-RUN cargo build --release && rm -rf src
-
-# Copy actual source code
+# Copy real source and build
 COPY src ./src
+RUN cargo build --release
 
-# Build the application
-RUN touch src/main.rs && cargo build --release
-
-# Runtime stage
+# Runtime stage — slim image with only what's needed to run
 FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from builder
+# Copy binary from builder
 COPY --from=builder /app/target/release/gym-tracker-bot /app/gym-tracker-bot
 
-# Create data directory
+# Persistent data directory (mount a volume here)
 RUN mkdir -p /app/data
 
-# Set environment variables
 ENV DATABASE_PATH=/app/data/gym_tracker.db
-ENV RUST_LOG=gym_tracker_bot=info
+ENV RUST_LOG=gym_tracker_bot=info,poise=warn,serenity=warn
 
-# Run the bot
 CMD ["./gym-tracker-bot"]
