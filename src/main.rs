@@ -254,6 +254,11 @@ async fn main() {
             Box::pin(async move {
                 tracing::info!("Bot is ready! Registering commands...");
 
+                // Clear any previously registered global commands
+                if let Err(e) = poise::builtins::register_globally(ctx, &[] as &[poise::Command<Data, Error>]).await {
+                    tracing::warn!("Failed to clear global commands: {}", e);
+                }
+
                 // Register commands to every guild for instant propagation.
                 // Fine for small deployments — at 100+ guilds, switch to
                 // register_globally() to avoid startup API call volume.
