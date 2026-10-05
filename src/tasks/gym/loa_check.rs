@@ -3,15 +3,14 @@ use poise::serenity_prelude::{self as serenity, ChannelId, Http, MessageId, Reac
 use std::sync::Arc;
 use tokio::time;
 
+use crate::Data;
 use crate::db::gym::queries;
 use crate::util::time::{format_datetime, parse_datetime};
-use crate::Data;
 
 /// Return the earliest pending LOA vote_ends_at for smart sleep.
 fn next_vote_end_time(data: &Data) -> Option<chrono::DateTime<Utc>> {
     let conn = data.db.conn();
-    queries::get_earliest_pending_vote_end(&conn)
-        .and_then(|s| parse_datetime(&s).ok())
+    queries::get_earliest_pending_vote_end(&conn).and_then(|s| parse_datetime(&s).ok())
 }
 
 pub fn start_loa_check_task(http: Arc<Http>, data: Arc<Data>) {
@@ -64,7 +63,10 @@ async fn check_loa_votes(
         if let Err(e) = resolve_loa_vote(http, data, &loa).await {
             tracing::error!(
                 "Failed to resolve LOA vote id={} guild={} user={}: {}",
-                loa.id, loa.guild_id, loa.user_id, e
+                loa.id,
+                loa.guild_id,
+                loa.user_id,
+                e
             );
         }
     }
@@ -85,11 +87,23 @@ pub async fn resolve_loa_vote(
 
         // Fetch the full voter lists so we can exclude the bot and the requester
         let yes_users = http
-            .get_reaction_users(channel, message_id, &ReactionType::Unicode("✅".to_string()), 100, None)
+            .get_reaction_users(
+                channel,
+                message_id,
+                &ReactionType::Unicode("✅".to_string()),
+                100,
+                None,
+            )
             .await
             .unwrap_or_default();
         let no_users = http
-            .get_reaction_users(channel, message_id, &ReactionType::Unicode("❌".to_string()), 100, None)
+            .get_reaction_users(
+                channel,
+                message_id,
+                &ReactionType::Unicode("❌".to_string()),
+                100,
+                None,
+            )
             .await
             .unwrap_or_default();
 
@@ -98,10 +112,18 @@ pub async fn resolve_loa_vote(
         // Exclude bot's seeded reaction and requester's own vote
         let yes = yes_users.len() as i64
             - if is_voter(&yes_users, bot_id) { 1 } else { 0 }
-            - if is_voter(&yes_users, requester_id) { 1 } else { 0 };
+            - if is_voter(&yes_users, requester_id) {
+                1
+            } else {
+                0
+            };
         let no = no_users.len() as i64
             - if is_voter(&no_users, bot_id) { 1 } else { 0 }
-            - if is_voter(&no_users, requester_id) { 1 } else { 0 };
+            - if is_voter(&no_users, requester_id) {
+                1
+            } else {
+                0
+            };
 
         (yes.max(0) as u64, no.max(0) as u64)
     } else {
@@ -119,7 +141,12 @@ pub async fn resolve_loa_vote(
 
     tracing::info!(
         "LOA id={} guild={} user={} resolved={} ({}✅ {}❌)",
-        loa.id, loa.guild_id, loa.user_id, status, yes_votes, no_votes
+        loa.id,
+        loa.guild_id,
+        loa.user_id,
+        status,
+        yes_votes,
+        no_votes
     );
 
     let result_msg = if approved {
@@ -143,6 +170,8 @@ pub async fn resolve_loa_vote(
         )
     };
 
-    channel.send_message(http, serenity::CreateMessage::new().content(result_msg)).await?;
+    channel
+        .send_message(http, serenity::CreateMessage::new().content(result_msg))
+        .await?;
     Ok(())
 }

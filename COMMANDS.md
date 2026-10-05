@@ -256,7 +256,9 @@ Retroactively log a workout for a past period.
 |-----------|------|-------------|
 | `group` | string | Activity group (autocomplete) |
 | `activity_type` | string | Type (autocomplete, filtered by group) |
-| `weeks_ago` | integer | 1–4 weeks back |
+| `weeks_ago` | integer | 1–12 weeks back |
+
+- **Goal re-check**: After logging, the week's goal result is re-evaluated. If the backfill completes the goal, the week flips ✗ → ✓ and the user's achieved/missed totals are adjusted. LOA weeks are left alone.
 
 ---
 
@@ -396,6 +398,13 @@ Manually trigger a weekly rollover immediately.
 - **Use case**: Testing, fixing a missed rollover, or starting a new period early
 - **Behavior**: Identical to an automatic rollover — archives results, posts summary image, creates next period
 
+#### `/gym re-evaluate`
+Re-check every user's goal for each completed week of the current season and fix any stored result that doesn't match the logged workouts.
+
+- **Permissions**: Administrator
+- **Use case**: Catching and repairing wrong ✓/✗ results (e.g. from bugs)
+- **Behavior**: Fixed weeks have their result corrected and the user's achieved/missed totals adjusted; the reply lists each change. LOA weeks are skipped. Goals are checked against each user's **current** goal settings.
+
 ---
 
 ## Automatic Features
@@ -443,6 +452,7 @@ On startup (and after each rollover), the bot calculates exactly when the next p
 | `/gym season new` | Administrator |
 | `/gym season end` | Administrator |
 | `/gym force_rollover` | Administrator |
+| `/gym re-evaluate` | Administrator |
 | `/gym info` | Anyone |
 | `/gym period_info` | Anyone |
 | `/gym user list` | Anyone |

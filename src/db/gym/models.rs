@@ -1,6 +1,5 @@
 // Gym tracker data models
 
-
 #[derive(Debug, Clone)]
 pub struct GuildConfig {
     pub guild_id: u64,
@@ -26,7 +25,7 @@ pub struct UserGoalConfig {
 #[derive(Debug, Clone)]
 pub struct Season {
     pub id: i64,
-    pub name: String,       // "Szn 1", "Szn 2", …
+    pub name: String, // "Szn 1", "Szn 2", …
     pub start_time: String,
     pub end_time: Option<String>,
     pub is_current: bool,

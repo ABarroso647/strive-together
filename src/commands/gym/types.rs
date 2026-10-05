@@ -1,16 +1,26 @@
 use super::Context;
-use crate::db::gym::queries;
 use crate::Error;
+use crate::db::gym::queries;
 use poise::serenity_prelude as serenity;
 
 /// Manage activity types
-#[poise::command(slash_command, guild_only, rename = "type", subcommands("add_type", "remove_type", "list_types"))]
+#[poise::command(
+    slash_command,
+    guild_only,
+    rename = "type",
+    subcommands("add_type", "remove_type", "list_types")
+)]
 pub async fn types_cmd(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
 /// Add an activity type and assign it to a group
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "add")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "add"
+)]
 pub async fn add_type(
     ctx: Context<'_>,
     #[description = "Name of the activity type (lowercase, no spaces)"] name: String,
@@ -41,13 +51,16 @@ pub async fn add_type(
         if !queries::group_exists(&conn, guild_id, &group)? {
             let groups = queries::get_activity_groups(&conn, guild_id)?;
             if groups.is_empty() {
-                return Err("No groups exist yet. Create one with `/gym group create <name>` first.".into());
+                return Err(
+                    "No groups exist yet. Create one with `/gym group create <name>` first.".into(),
+                );
             }
             return Err(format!(
                 "Group '{}' doesn't exist. Available: {}",
                 group,
                 groups.join(", ")
-            ).into());
+            )
+            .into());
         }
 
         if queries::activity_type_exists(&conn, guild_id, &name)? {
@@ -62,7 +75,13 @@ pub async fn add_type(
             queries::set_user_type_total(&conn, guild_id, user_id, &name, 0)?;
         }
 
-        tracing::info!("guild={} user={} cmd=type_add name={} group={}", guild_id, ctx.author().id.get(), name, group);
+        tracing::info!(
+            "guild={} user={} cmd=type_add name={} group={}",
+            guild_id,
+            ctx.author().id.get(),
+            name,
+            group
+        );
         format!("Added activity type **{}** in group **{}**.", name, group)
     };
 
@@ -71,7 +90,12 @@ pub async fn add_type(
 }
 
 /// Remove an activity type
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "remove")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "remove"
+)]
 pub async fn remove_type(
     ctx: Context<'_>,
     #[description = "Name of the activity type to remove"]
@@ -92,7 +116,12 @@ pub async fn remove_type(
 
         // Try to delete the type
         if queries::delete_activity_type(&conn, guild_id, &name)? {
-            tracing::info!("guild={} user={} cmd=type_remove name={}", guild_id, ctx.author().id.get(), name);
+            tracing::info!(
+                "guild={} user={} cmd=type_remove name={}",
+                guild_id,
+                ctx.author().id.get(),
+                name
+            );
             format!(
                 "Removed activity type **{}**.\n\
                 Note: Existing logs with this type are preserved but won't appear in new summaries.",
@@ -127,7 +156,8 @@ pub async fn list_types(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     if all_types.is_empty() {
-        ctx.say("No activity types configured. Add some with `/gym type add`.").await?;
+        ctx.say("No activity types configured. Add some with `/gym type add`.")
+            .await?;
         return Ok(());
     }
 
@@ -136,8 +166,14 @@ pub async fn list_types(ctx: Context<'_>) -> Result<(), Error> {
         .color(0x00aaff);
 
     for group_name in &groups {
-        let members: Vec<&str> = all_types.iter()
-            .filter(|t| type_group_map.get(*t).map(|g| g == group_name).unwrap_or(false))
+        let members: Vec<&str> = all_types
+            .iter()
+            .filter(|t| {
+                type_group_map
+                    .get(*t)
+                    .map(|g| g == group_name)
+                    .unwrap_or(false)
+            })
             .map(|t| t.as_str())
             .collect();
         if !members.is_empty() {
@@ -145,7 +181,8 @@ pub async fn list_types(ctx: Context<'_>) -> Result<(), Error> {
         }
     }
 
-    let unassigned: Vec<&str> = all_types.iter()
+    let unassigned: Vec<&str> = all_types
+        .iter()
         .filter(|t| !type_group_map.contains_key(*t))
         .map(|t| t.as_str())
         .collect();
@@ -173,10 +210,7 @@ async fn autocomplete_group<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<Strin
 }
 
 /// Autocomplete function for activity types
-async fn autocomplete_activity_type<'a>(
-    ctx: Context<'a>,
-    partial: &'a str,
-) -> Vec<String> {
+async fn autocomplete_activity_type<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<String> {
     let guild_id = match ctx.guild_id() {
         Some(id) => id.get(),
         None => return vec![],

@@ -401,10 +401,16 @@ pub fn upsert_setting(conn: &Connection, ...) -> Result<(), rusqlite::Error> {
 - Command descriptions show in Discord's UI
 - Parameter descriptions show when users type the command
 
+### Formatting
+Run `cargo fmt` before committing (config in `rustfmt.toml`).
+
 ### Testing Locally
 ```bash
 # Quick check (no compile)
 cargo check
+
+# Run tests
+cargo test
 
 # Run with debug logs
 RUST_LOG=gym_tracker_bot=debug cargo run

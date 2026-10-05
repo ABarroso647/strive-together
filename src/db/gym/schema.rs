@@ -212,8 +212,15 @@ pub const MIGRATIONS: &[&str] = &[
 ];
 
 pub const DEFAULT_ACTIVITY_TYPES: &[&str] = &[
-    "push", "pull", "legs", "upper", "lower",
-    "run", "bike", "machine_cardio", "hiit",
+    "push",
+    "pull",
+    "legs",
+    "upper",
+    "lower",
+    "run",
+    "bike",
+    "machine_cardio",
+    "hiit",
 ];
 
 pub const DEFAULT_ACTIVITY_GROUPS: &[(&str, &[&str])] = &[

@@ -1,8 +1,8 @@
 use super::Context;
+use crate::Error;
 use crate::db::gym::queries;
 use crate::tasks::gym::weekly_check::rollover_period;
 use crate::util::time::format_datetime;
-use crate::Error;
 use chrono::Utc;
 
 /// Season management
@@ -38,7 +38,13 @@ pub async fn new(ctx: Context<'_>) -> Result<(), Error> {
                 queries::set_period_season(&conn, period.id, szn2_id)?;
             }
 
-            tracing::info!("guild={} user={} cmd=season_new szn1_id={} szn2_id={}", guild_id, ctx.author().id.get(), szn1_id, szn2_id);
+            tracing::info!(
+                "guild={} user={} cmd=season_new szn1_id={} szn2_id={}",
+                guild_id,
+                ctx.author().id.get(),
+                szn1_id,
+                szn2_id
+            );
             "All past history labeled **Szn 1**. **Szn 2** is now active — new weeks will count toward it.".to_string()
         } else {
             let next_num = season_count + 1;
@@ -51,8 +57,17 @@ pub async fn new(ctx: Context<'_>) -> Result<(), Error> {
                 queries::set_period_season(&conn, period.id, new_id)?;
             }
 
-            tracing::info!("guild={} user={} cmd=season_new new_season={} id={}", guild_id, ctx.author().id.get(), next_name, new_id);
-            format!("**Szn {}** has ended. **{}** is now active — the current week carries over.", season_count, next_name)
+            tracing::info!(
+                "guild={} user={} cmd=season_new new_season={} id={}",
+                guild_id,
+                ctx.author().id.get(),
+                next_name,
+                new_id
+            );
+            format!(
+                "**Szn {}** has ended. **{}** is now active — the current week carries over.",
+                season_count, next_name
+            )
         }
     };
 
@@ -69,8 +84,8 @@ pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
         let db = &ctx.data().db;
         let conn = db.conn();
 
-        let config = queries::get_guild_config(&conn, guild_id)?
-            .ok_or("Gym tracker not set up.")?;
+        let config =
+            queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
 
         let season = queries::get_current_season(&conn, guild_id)?;
         let name = match &season {
@@ -101,7 +116,8 @@ pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
             period,
             Some(now),  // extra-long period from now → next Sunday
             Some(None), // off-season: no season assigned
-        ).await?;
+        )
+        .await?;
     }
 
     {
@@ -110,7 +126,12 @@ pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
         queries::close_current_season(&conn, guild_id, &now_str)?;
     }
 
-    tracing::info!("guild={} user={} cmd=season_end season={}", guild_id, ctx.author().id.get(), season_name);
+    tracing::info!(
+        "guild={} user={} cmd=season_end season={}",
+        guild_id,
+        ctx.author().id.get(),
+        season_name
+    );
     ctx.say(format!(
         "**{}** has ended and its final week has been posted. Use `/gym season new` to start the next one.",
         season_name
@@ -135,7 +156,10 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     if seasons.is_empty() {
-        ctx.say("No seasons yet. Use `/gym season new` to label your history and start a new season.").await?;
+        ctx.say(
+            "No seasons yet. Use `/gym season new` to label your history and start a new season.",
+        )
+        .await?;
         return Ok(());
     }
 

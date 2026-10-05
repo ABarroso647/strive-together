@@ -1,16 +1,32 @@
 use super::Context;
-use crate::db::gym::queries;
 use crate::Error;
+use crate::db::gym::queries;
 use poise::serenity_prelude as serenity;
 
 /// Manage tracked users
-#[poise::command(slash_command, guild_only, subcommands("add_user", "remove_user", "list_users", "import_user", "set_type_total", "set_goal_stats"))]
+#[poise::command(
+    slash_command,
+    guild_only,
+    subcommands(
+        "add_user",
+        "remove_user",
+        "list_users",
+        "import_user",
+        "set_type_total",
+        "set_goal_stats"
+    )
+)]
 pub async fn user(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
 /// Add a user to the gym tracker
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "add")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "add"
+)]
 pub async fn add_user(
     ctx: Context<'_>,
     #[description = "User to add"] user: serenity::User,
@@ -40,7 +56,12 @@ pub async fn add_user(
                 queries::set_user_type_total(&conn, guild_id, user_id, &activity_type, 0)?;
             }
 
-            tracing::info!("guild={} admin={} cmd=user_add target_user={}", guild_id, ctx.author().id.get(), user_id);
+            tracing::info!(
+                "guild={} admin={} cmd=user_add target_user={}",
+                guild_id,
+                ctx.author().id.get(),
+                user_id
+            );
             format!(
                 "Added <@{}> to the gym tracker with a goal of {} workouts/week.",
                 user_id, config.default_goal
@@ -53,7 +74,12 @@ pub async fn add_user(
 }
 
 /// Remove a user from the gym tracker
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "remove")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "remove"
+)]
 pub async fn remove_user(
     ctx: Context<'_>,
     #[description = "User to remove"] user: serenity::User,
@@ -71,7 +97,12 @@ pub async fn remove_user(
         }
 
         if queries::delete_user(&conn, guild_id, user_id)? {
-            tracing::info!("guild={} admin={} cmd=user_remove target_user={}", guild_id, ctx.author().id.get(), user_id);
+            tracing::info!(
+                "guild={} admin={} cmd=user_remove target_user={}",
+                guild_id,
+                ctx.author().id.get(),
+                user_id
+            );
             format!("Removed <@{}> from the gym tracker.", user_id)
         } else {
             format!("<@{}> was not in the gym tracker.", user_id)
@@ -100,7 +131,8 @@ pub async fn list_users(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     if users.is_empty() {
-        ctx.say("No users in the gym tracker yet. Add users with `/gym add_user @user`.").await?;
+        ctx.say("No users in the gym tracker yet. Add users with `/gym add_user @user`.")
+            .await?;
     } else {
         let mentions: Vec<String> = users.iter().map(|id| format!("<@{}>", id)).collect();
         let embed = serenity::CreateEmbed::new()
@@ -116,7 +148,12 @@ pub async fn list_users(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Import user data from JSON
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "import")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "import"
+)]
 pub async fn import_user(
     ctx: Context<'_>,
     #[description = "User to import data for"] user: serenity::User,
@@ -126,8 +163,8 @@ pub async fn import_user(
     let user_id = user.id.get();
 
     // Parse JSON
-    let data: serde_json::Value = serde_json::from_str(&json)
-        .map_err(|e| format!("Invalid JSON: {}", e))?;
+    let data: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| format!("Invalid JSON: {}", e))?;
 
     let response = {
         let db = &ctx.data().db;
@@ -150,7 +187,13 @@ pub async fn import_user(
         if let Some(type_totals) = data.get("type_totals").and_then(|v| v.as_object()) {
             for (activity_type, count) in type_totals {
                 if let Some(count) = count.as_i64() {
-                    queries::set_user_type_total(&conn, guild_id, user_id, activity_type, count as i32)?;
+                    queries::set_user_type_total(
+                        &conn,
+                        guild_id,
+                        user_id,
+                        activity_type,
+                        count as i32,
+                    )?;
                     imported.push(format!("{}: {}", activity_type, count));
                 }
             }
@@ -187,7 +230,12 @@ pub async fn import_user(
 }
 
 /// Set a user's total for a specific activity type
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "set_type")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "set_type"
+)]
 pub async fn set_type_total(
     ctx: Context<'_>,
     #[description = "User"] user: serenity::User,
@@ -220,16 +268,29 @@ pub async fn set_type_total(
         queries::set_user_type_total(&conn, guild_id, user_id, &activity_type, count)?;
     }
 
-    tracing::info!("guild={} admin={} cmd=user_set_type target={} type={} count={}", guild_id, ctx.author().id.get(), user_id, activity_type, count);
+    tracing::info!(
+        "guild={} admin={} cmd=user_set_type target={} type={} count={}",
+        guild_id,
+        ctx.author().id.get(),
+        user_id,
+        activity_type,
+        count
+    );
     ctx.say(format!(
         "Set {}'s **{}** total to **{}**.",
         user.name, activity_type, count
-    )).await?;
+    ))
+    .await?;
     Ok(())
 }
 
 /// Set a user's goal statistics
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "set_goals")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "set_goals"
+)]
 pub async fn set_goal_stats(
     ctx: Context<'_>,
     #[description = "User"] user: serenity::User,
@@ -257,19 +318,24 @@ pub async fn set_goal_stats(
         queries::set_user_goal_stats(&conn, guild_id, user_id, achieved, missed)?;
     }
 
-    tracing::info!("guild={} admin={} cmd=user_set_goals target={} achieved={} missed={}", guild_id, ctx.author().id.get(), user_id, achieved, missed);
+    tracing::info!(
+        "guild={} admin={} cmd=user_set_goals target={} achieved={} missed={}",
+        guild_id,
+        ctx.author().id.get(),
+        user_id,
+        achieved,
+        missed
+    );
     ctx.say(format!(
         "Set {}'s goals to **{}** achieved, **{}** missed.",
         user.name, achieved, missed
-    )).await?;
+    ))
+    .await?;
     Ok(())
 }
 
 /// Autocomplete function for activity types
-async fn autocomplete_activity_type<'a>(
-    ctx: Context<'a>,
-    partial: &'a str,
-) -> Vec<String> {
+async fn autocomplete_activity_type<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<String> {
     let guild_id = match ctx.guild_id() {
         Some(id) => id.get(),
         None => return vec![],

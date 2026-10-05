@@ -1,7 +1,7 @@
 use super::Context;
+use crate::Error;
 use crate::db::gym::queries;
 use crate::util::time::format_datetime;
-use crate::Error;
 use chrono::Utc;
 use poise::serenity_prelude as serenity;
 
@@ -61,7 +61,8 @@ pub async fn log(
                 "Activity type '{}' doesn't exist.\nAvailable types: {}",
                 activity_type,
                 types.join(", ")
-            ).into());
+            )
+            .into());
         }
 
         let period = match queries::get_current_period(&conn, guild_id)? {
@@ -84,17 +85,34 @@ pub async fn log(
 
         let logged_at = format_datetime(&Utc::now());
         for user_id in &valid_users {
-            queries::insert_log(&conn, guild_id, *user_id, period.id, &activity_type, &logged_at)?;
+            queries::insert_log(
+                &conn,
+                guild_id,
+                *user_id,
+                period.id,
+                &activity_type,
+                &logged_at,
+            )?;
         }
 
         let mentions: Vec<String> = valid_users.iter().map(|id| format!("<@{}>", id)).collect();
         let mut response = format!("💪 **{}** — {}", activity_type, mentions.join(", "));
         if !invalid_users.is_empty() {
-            let skipped: Vec<String> = invalid_users.iter().map(|id| format!("<@{}>", id)).collect();
-            response.push_str(&format!("\n*(Skipped {} — not in tracker)*", skipped.join(", ")));
+            let skipped: Vec<String> = invalid_users
+                .iter()
+                .map(|id| format!("<@{}>", id))
+                .collect();
+            response.push_str(&format!(
+                "\n*(Skipped {} — not in tracker)*",
+                skipped.join(", ")
+            ));
         }
 
-        LogData { response, period_id: period.id, valid_users }
+        LogData {
+            response,
+            period_id: period.id,
+            valid_users,
+        }
     };
 
     // Send reply — link to image via camera emoji so Discord previews without exposing filename
@@ -102,7 +120,9 @@ pub async fn log(
         Some(att) => format!("{} [📷]({})", log_data.response, att.url),
         None => log_data.response.clone(),
     };
-    let reply = ctx.send(poise::CreateReply::default().content(reply_content)).await?;
+    let reply = ctx
+        .send(poise::CreateReply::default().content(reply_content))
+        .await?;
 
     // Add 🔥 reaction and store message ID + any attachments
     if let Ok(msg) = reply.message().await {
@@ -110,22 +130,47 @@ pub async fn log(
         let channel_id = msg.channel_id.get();
 
         // Best-effort: react + store (don't fail the command if these error)
-        let _ = msg.react(ctx.http(), serenity::ReactionType::Unicode("🔥".to_string())).await;
+        let _ = msg
+            .react(
+                ctx.http(),
+                serenity::ReactionType::Unicode("🔥".to_string()),
+            )
+            .await;
 
         let db = &ctx.data().db;
         let conn = db.conn();
-        let _ = queries::insert_log_message(&conn, message_id, guild_id, channel_id, log_data.period_id);
+        let _ = queries::insert_log_message(
+            &conn,
+            message_id,
+            guild_id,
+            channel_id,
+            log_data.period_id,
+        );
 
         // Store original image attachment URL from the interaction (not the sent message,
         // since we embed the URL as text rather than re-uploading)
         if let Some(ref att) = image {
             let now_str = format_datetime(&Utc::now());
             let author_id = ctx.author().id.get();
-            let _ = queries::insert_log_attachment(&conn, message_id, guild_id, author_id, &att.url, &att.filename, &now_str);
+            let _ = queries::insert_log_attachment(
+                &conn,
+                message_id,
+                guild_id,
+                author_id,
+                &att.url,
+                &att.filename,
+                &now_str,
+            );
         }
 
-        tracing::info!("guild={} user={} log activity_type={} users={:?} message_id={}",
-            guild_id, ctx.author().id.get(), activity_type, log_data.valid_users, message_id);
+        tracing::info!(
+            "guild={} user={} log activity_type={} users={:?} message_id={}",
+            guild_id,
+            ctx.author().id.get(),
+            activity_type,
+            log_data.valid_users,
+            message_id
+        );
     }
 
     Ok(())
@@ -154,10 +199,14 @@ pub async fn log_past(
 
     let mut users_to_log = vec![ctx.author().id.get()];
     if let Some(u) = &user2 {
-        if !users_to_log.contains(&u.id.get()) { users_to_log.push(u.id.get()); }
+        if !users_to_log.contains(&u.id.get()) {
+            users_to_log.push(u.id.get());
+        }
     }
     if let Some(u) = &user3 {
-        if !users_to_log.contains(&u.id.get()) { users_to_log.push(u.id.get()); }
+        if !users_to_log.contains(&u.id.get()) {
+            users_to_log.push(u.id.get());
+        }
     }
 
     let response = {
@@ -177,7 +226,8 @@ pub async fn log_past(
                 "Activity type '{}' doesn't exist.\nAvailable types: {}",
                 activity_type,
                 types.join(", ")
-            ).into());
+            )
+            .into());
         }
 
         // Fetch the target past period (limit = weeks_ago, result[0] = oldest = target)
@@ -185,8 +235,10 @@ pub async fn log_past(
         if (periods.len() as i32) < weeks_ago {
             return Err(format!(
                 "Only {} completed week(s) exist so far — can't log for {} weeks ago.",
-                periods.len(), weeks_ago
-            ).into());
+                periods.len(),
+                weeks_ago
+            )
+            .into());
         }
         // get_completed_periods returns oldest→newest; [0] is the oldest = the furthest-back week
         let period = &periods[0];
@@ -211,14 +263,14 @@ pub async fn log_past(
         let logged_at = format_datetime(&now);
 
         for user_id in &valid_users {
-            // Insert the log entry into the past period
-            queries::insert_log(&conn, guild_id, *user_id, period_id, &activity_type, &logged_at)?;
-            // Update the archived period summaries
-            queries::increment_period_type_count_upsert(&conn, period_id, *user_id, &activity_type, 1)?;
-            queries::increment_period_result_count(&conn, period_id, *user_id, 1)?;
-            // Update all-time totals
-            queries::update_user_totals(&conn, guild_id, *user_id, 1, 0, 0)?;
-            queries::increment_user_type_total(&conn, guild_id, *user_id, &activity_type, 1)?;
+            queries::backfill_log(
+                &conn,
+                guild_id,
+                *user_id,
+                period_id,
+                &activity_type,
+                &logged_at,
+            )?;
         }
 
         let mentions: Vec<String> = valid_users.iter().map(|id| format!("<@{}>", id)).collect();
@@ -230,11 +282,23 @@ pub async fn log_past(
             period_end
         );
         if !invalid_users.is_empty() {
-            let skipped: Vec<String> = invalid_users.iter().map(|id| format!("<@{}>", id)).collect();
-            msg.push_str(&format!("\n(Skipped {} — not in tracker)", skipped.join(", ")));
+            let skipped: Vec<String> = invalid_users
+                .iter()
+                .map(|id| format!("<@{}>", id))
+                .collect();
+            msg.push_str(&format!(
+                "\n(Skipped {} — not in tracker)",
+                skipped.join(", ")
+            ));
         }
-        tracing::info!("guild={} user={} cmd=log_past activity_type={} weeks_ago={} users={:?}",
-            guild_id, ctx.author().id.get(), activity_type, weeks_ago, valid_users);
+        tracing::info!(
+            "guild={} user={} cmd=log_past activity_type={} weeks_ago={} users={:?}",
+            guild_id,
+            ctx.author().id.get(),
+            activity_type,
+            weeks_ago,
+            valid_users
+        );
         msg
     };
 
@@ -273,10 +337,7 @@ fn resolve_options(opts: &[serenity::CommandDataOption]) -> &[serenity::CommandD
 }
 
 /// Autocomplete function for activity types — filters by group if one is selected
-async fn autocomplete_activity_type<'a>(
-    ctx: Context<'a>,
-    partial: &'a str,
-) -> Vec<String> {
+async fn autocomplete_activity_type<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<String> {
     let guild_id = match ctx.guild_id() {
         Some(id) => id.get(),
         None => return vec![],
@@ -285,15 +346,13 @@ async fn autocomplete_activity_type<'a>(
     // group param is nested under the subcommand wrapper — resolve it
     let group_filter = if let poise::Context::Application(app_ctx) = ctx {
         let opts = resolve_options(&app_ctx.interaction.data.options);
-        opts.iter()
-            .find(|o| o.name == "group")
-            .and_then(|o| {
-                if let serenity::CommandDataOptionValue::String(s) = &o.value {
-                    Some(s.clone())
-                } else {
-                    None
-                }
-            })
+        opts.iter().find(|o| o.name == "group").and_then(|o| {
+            if let serenity::CommandDataOptionValue::String(s) = &o.value {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
     } else {
         None
     };

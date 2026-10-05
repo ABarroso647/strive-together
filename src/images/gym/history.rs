@@ -58,7 +58,10 @@ pub fn generate_history_image(
         let cx = PADDING + NAME_COL_W + wi as u32 * CELL_W + CELL_W / 2;
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#202225"/>"##,
-            PADDING + NAME_COL_W + wi as u32 * CELL_W, col_label_y, CELL_W, COL_LABEL_H,
+            PADDING + NAME_COL_W + wi as u32 * CELL_W,
+            col_label_y,
+            CELL_W,
+            COL_LABEL_H,
         ));
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="{}" fill="#b9bbbe" text-anchor="middle">{}</text>"##,
@@ -73,7 +76,11 @@ pub fn generate_history_image(
 
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>"##,
-            PADDING, row_y, image_w - PADDING * 2, CELL_H, row_bg
+            PADDING,
+            row_y,
+            image_w - PADDING * 2,
+            CELL_H,
+            row_bg
         ));
 
         // Name
@@ -95,7 +102,10 @@ pub fn generate_history_image(
                 None => {
                     svg.push_str(&format!(
                         r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#1e2124" rx="3"/>"##,
-                        cell_x + 2, cell_y + 3, CELL_W - 4, CELL_H - 6
+                        cell_x + 2,
+                        cell_y + 3,
+                        CELL_W - 4,
+                        CELL_H - 6
                     ));
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="{}" fill="#4f545c" text-anchor="middle">—</text>"##,
@@ -126,7 +136,11 @@ pub fn generate_history_image(
                         };
                         svg.push_str(&format!(
                             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" rx="3"/>"##,
-                            cell_x + 2, cell_y + 3, CELL_W - 4, CELL_H - 6, cell_fill
+                            cell_x + 2,
+                            cell_y + 3,
+                            CELL_W - 4,
+                            CELL_H - 6,
+                            cell_fill
                         ));
                         let sym = if *goal_met { "✓" } else { "✗" };
                         svg.push_str(&format!(
@@ -155,12 +169,12 @@ pub fn generate_history_image(
 /// One entry in the single-user history: either a completed week or a goal change event.
 pub enum UserHistoryEntry {
     Week {
-        week_label: String,  // e.g. "Apr 19 – Apr 26"
+        week_label: String, // e.g. "Apr 19 – Apr 26"
         /// (count, goal_met, loa_exempt, type_counts). None = not tracked that week.
         result: Option<(i32, bool, bool, Vec<(String, i32)>)>,
     },
     GoalChange {
-        description: String,  // e.g. "total goal → 5/week"
+        description: String, // e.g. "total goal → 5/week"
     },
 }
 
@@ -191,10 +205,13 @@ pub fn generate_user_history_image(
     let _types_col_w = IMG_W - PADDING - types_col_x;
 
     // Pre-compute image height
-    let content_h: u32 = entries.iter().map(|e| match e {
-        UserHistoryEntry::Week { .. } => ROW_H,
-        UserHistoryEntry::GoalChange { .. } => GOAL_ROW_H,
-    }).sum();
+    let content_h: u32 = entries
+        .iter()
+        .map(|e| match e {
+            UserHistoryEntry::Week { .. } => ROW_H,
+            UserHistoryEntry::GoalChange { .. } => GOAL_ROW_H,
+        })
+        .sum();
     let image_h = PADDING + HEADER_H + COL_HDR_H + content_h + FOOTER_H + PADDING;
 
     let mut svg = String::new();
@@ -215,18 +232,19 @@ pub fn generate_user_history_image(
     ));
 
     // Current goal line
-    if !goal_summary.is_empty() {
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#8e9297">{}</text>"##,
-            PADDING, PADDING + 46, escape_svg(goal_summary)
-        ));
-    }
+    svg.push_str(&format!(
+        r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="12" fill="#8e9297">{}</text>"##,
+        PADDING, PADDING + 46, escape_svg(goal_summary)
+    ));
 
     // Column headers background
     let col_hdr_y = PADDING + HEADER_H;
     svg.push_str(&format!(
         r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#202225"/>"##,
-        PADDING, col_hdr_y, IMG_W - PADDING * 2, COL_HDR_H
+        PADDING,
+        col_hdr_y,
+        IMG_W - PADDING * 2,
+        COL_HDR_H
     ));
     let hdr_text_y = col_hdr_y + 18;
     svg.push_str(&format!(
@@ -248,10 +266,18 @@ pub fn generate_user_history_image(
     for entry in entries {
         match entry {
             UserHistoryEntry::Week { week_label, result } => {
-                let row_bg = if row_idx % 2 == 0 { "#2f3136" } else { "#36393f" };
+                let row_bg = if row_idx % 2 == 0 {
+                    "#2f3136"
+                } else {
+                    "#36393f"
+                };
                 svg.push_str(&format!(
                     r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>"##,
-                    PADDING, y, IMG_W - PADDING * 2, ROW_H, row_bg
+                    PADDING,
+                    y,
+                    IMG_W - PADDING * 2,
+                    ROW_H,
+                    row_bg
                 ));
 
                 let text_y = y + ROW_H / 2 + 5;
@@ -283,10 +309,18 @@ pub fn generate_user_history_image(
                         ));
                     }
                     Some((count, goal_met, false, _)) => {
-                        let (bg, fg) = if *goal_met { ("#1e4a2e", "#43b581") } else { ("#4a1e1e", "#f04747") };
+                        let (bg, fg) = if *goal_met {
+                            ("#1e4a2e", "#43b581")
+                        } else {
+                            ("#4a1e1e", "#f04747")
+                        };
                         svg.push_str(&format!(
                             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" rx="3"/>"##,
-                            result_x + 4, y + 5, RESULT_COL_W - 8, ROW_H - 10, bg
+                            result_x + 4,
+                            y + 5,
+                            RESULT_COL_W - 8,
+                            ROW_H - 10,
+                            bg
                         ));
                         let sym = if *goal_met { "✓" } else { "✗" };
                         svg.push_str(&format!(
@@ -299,15 +333,18 @@ pub fn generate_user_history_image(
                 // Types
                 let types_str = match result {
                     None => "not tracked".to_string(),
-                    Some((_, _, _, type_counts)) if type_counts.is_empty() => "no types logged".to_string(),
-                    Some((_, _, _, type_counts)) => type_counts.iter()
+                    Some((_, _, _, type_counts)) if type_counts.is_empty() => {
+                        "no types logged".to_string()
+                    }
+                    Some((_, _, _, type_counts)) => type_counts
+                        .iter()
                         .map(|(t, c)| format!("{}({})", t, c))
                         .collect::<Vec<_>>()
                         .join("  "),
                 };
                 let types_fill = match result {
                     None => "#4f545c",
-                    Some((_, _, true, _)) => "#5b8fbd",  // LOA: blue tint
+                    Some((_, _, true, _)) => "#5b8fbd", // LOA: blue tint
                     Some((_, true, _, _)) => "#72767d",
                     Some((_, false, _, types)) if types.is_empty() => "#4f545c",
                     _ => "#72767d",
@@ -325,7 +362,10 @@ pub fn generate_user_history_image(
                 // Full-width goal change banner
                 svg.push_str(&format!(
                     r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#2a2d31"/>"##,
-                    PADDING, y, IMG_W - PADDING * 2, GOAL_ROW_H
+                    PADDING,
+                    y,
+                    IMG_W - PADDING * 2,
+                    GOAL_ROW_H
                 ));
                 // Left accent bar
                 svg.push_str(&format!(
@@ -344,14 +384,19 @@ pub fn generate_user_history_image(
     // Footer
     let rate = if goals_met + goals_missed > 0 {
         goals_met * 100 / (goals_met + goals_missed)
-    } else { 0 };
+    } else {
+        0
+    };
     let footer = format!(
         "Total: {} workouts   ✓ {} met   ✗ {} missed   Rate: {}%",
         total_count, goals_met, goals_missed, rate
     );
     svg.push_str(&format!(
         r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#202225"/>"##,
-        PADDING, y, IMG_W - PADDING * 2, FOOTER_H
+        PADDING,
+        y,
+        IMG_W - PADDING * 2,
+        FOOTER_H
     ));
     svg.push_str(&format!(
         r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="#dcddde">{}</text>"##,

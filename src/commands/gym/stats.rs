@@ -1,6 +1,6 @@
 use super::Context;
-use crate::db::gym::queries;
 use crate::Error;
+use crate::db::gym::queries;
 use poise::serenity_prelude as serenity;
 use std::collections::HashMap;
 
@@ -39,28 +39,17 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
         let total_count = queries::get_user_period_count(&conn, period.id, user_id)?;
         let type_counts = queries::get_user_period_type_counts(&conn, period.id, user_id)?;
 
-        // Get user's goal config
-        let goal_config = queries::get_user_goal_config(&conn, guild_id, user_id)?
-            .ok_or("Could not find your goal configuration.")?;
+        // Get user's total goal
+        let total_goal = queries::get_user_total_goal(&conn, guild_id, user_id)?;
 
         // Determine goal status
         let type_group_map = queries::get_all_type_groups(&conn, guild_id)?;
-        let goal_config_opt = Some(goal_config.clone());
-        let goal_met = crate::images::gym::summary::evaluate_goal_met(
-            &conn, guild_id, user_id, total_count, &type_counts, &goal_config_opt, &type_group_map,
-        )?;
+        let goal_met = queries::evaluate_goal_met(&conn, guild_id, user_id, period.id)?;
 
         // Build goal progress string: total + any type/group sub-constraints
-        let mut progress_parts: Vec<String> = vec![
-            format!("Total: {}/{}", total_count, goal_config.total_goal)
-        ];
-        let mut stmt = conn.prepare(
-            "SELECT activity_type, goal FROM gym_user_type_goals WHERE guild_id = ? AND user_id = ? ORDER BY activity_type"
-        )?;
-        let type_goals: Vec<(String, i32)> = stmt
-            .query_map(rusqlite::params![guild_id, user_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .filter_map(|r| r.ok())
-            .collect();
+        let mut progress_parts: Vec<String> =
+            vec![format!("Total: {}/{}", total_count, total_goal)];
+        let type_goals = queries::get_user_type_goals(&conn, guild_id, user_id)?;
         for (t, g) in &type_goals {
             let count = type_counts.get(t).copied().unwrap_or(0);
             let sym = if count >= *g { "✓" } else { "✗" };
@@ -68,7 +57,8 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
         }
         let group_goals = queries::get_user_group_goals(&conn, guild_id, user_id)?;
         for (grp, goal) in &group_goals {
-            let group_total: i32 = type_counts.iter()
+            let group_total: i32 = type_counts
+                .iter()
                 .filter(|(t, _)| type_group_map.get(*t).map(|g| g == grp).unwrap_or(false))
                 .map(|(_, c)| c)
                 .sum();
@@ -83,18 +73,15 @@ pub async fn status(ctx: Context<'_>) -> Result<(), Error> {
         } else {
             let mut sorted: Vec<_> = type_counts.iter().collect();
             sorted.sort_by(|a, b| b.1.cmp(a.1));
-            sorted.iter()
+            sorted
+                .iter()
                 .map(|(t, c)| format!("{}: {}", t, c))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
 
         // Get period dates
-        let period_str = format!(
-            "{} to {}",
-            &period.start_time[..10],
-            &period.end_time[..10]
-        );
+        let period_str = format!("{} to {}", &period.start_time[..10], &period.end_time[..10]);
 
         let status_emoji = if goal_met { "✅" } else { "⏳" };
         let color = if goal_met { 0x00ff00 } else { 0xffaa00 };
@@ -121,8 +108,11 @@ pub async fn summary(ctx: Context<'_>) -> Result<(), Error> {
     let (period, user_ids) = {
         let db = &ctx.data().db;
         let conn = db.conn();
-        let config = queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
-        if !config.started { return Err("Tracking hasn't started yet.".into()); }
+        let config =
+            queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
+        if !config.started {
+            return Err("Tracking hasn't started yet.".into());
+        }
         let period = queries::get_current_period(&conn, guild_id)?.ok_or("No active period.")?;
         let user_ids = queries::get_users(&conn, guild_id)?;
         (period, user_ids)
@@ -135,12 +125,26 @@ pub async fn summary(ctx: Context<'_>) -> Result<(), Error> {
         guild_id,
         &period,
         "Weekly Summary",
-    ).await?;
+    )
+    .await?;
 
-    tracing::debug!("guild={} user={} cmd=summary", guild_id, ctx.author().id.get());
-    let mentions = user_ids.iter().map(|uid| format!("<@{}>", uid)).collect::<Vec<_>>().join(" ");
+    tracing::debug!(
+        "guild={} user={} cmd=summary",
+        guild_id,
+        ctx.author().id.get()
+    );
+    let mentions = user_ids
+        .iter()
+        .map(|uid| format!("<@{}>", uid))
+        .collect::<Vec<_>>()
+        .join(" ");
     let attachment = serenity::CreateAttachment::bytes(image_data, "summary.png");
-    ctx.send(poise::CreateReply::default().content(mentions).attachment(attachment)).await?;
+    ctx.send(
+        poise::CreateReply::default()
+            .content(mentions)
+            .attachment(attachment),
+    )
+    .await?;
     Ok(())
 }
 
@@ -162,14 +166,19 @@ pub async fn totals(ctx: Context<'_>) -> Result<(), Error> {
         &ctx.data().db,
         ctx.serenity_context().http.as_ref(),
         guild_id,
-    ).await?;
+    )
+    .await?;
 
-    tracing::debug!("guild={} user={} cmd=totals", guild_id, ctx.author().id.get());
+    tracing::debug!(
+        "guild={} user={} cmd=totals",
+        guild_id,
+        ctx.author().id.get()
+    );
     let attachment = serenity::CreateAttachment::bytes(image_data, "season_stats.png");
-    ctx.send(poise::CreateReply::default().attachment(attachment)).await?;
+    ctx.send(poise::CreateReply::default().attachment(attachment))
+        .await?;
     Ok(())
 }
-
 
 /// Week-by-week history. Optionally filter to a specific user or past season.
 #[poise::command(slash_command, guild_only)]
@@ -207,10 +216,16 @@ pub async fn history(
         let (periods, season_name) = if let Some(ref season_name_filter) = season {
             // Explicit season requested
             let all_seasons = queries::get_all_seasons(&conn, guild_id)?;
-            match all_seasons.into_iter().find(|s| s.name.to_lowercase() == season_name_filter.to_lowercase()) {
+            match all_seasons
+                .into_iter()
+                .find(|s| s.name.to_lowercase() == season_name_filter.to_lowercase())
+            {
                 Some(s) => {
                     let name = s.name.clone();
-                    (queries::get_all_completed_periods_in_season(&conn, guild_id, s.id)?, name)
+                    (
+                        queries::get_all_completed_periods_in_season(&conn, guild_id, s.id)?,
+                        name,
+                    )
                 }
                 None => return Err(format!("Season '{}' not found.", season_name_filter).into()),
             }
@@ -218,9 +233,15 @@ pub async fn history(
             match queries::get_current_season(&conn, guild_id)? {
                 Some(s) => {
                     let name = s.name.clone();
-                    (queries::get_all_completed_periods_in_season(&conn, guild_id, s.id)?, name)
+                    (
+                        queries::get_all_completed_periods_in_season(&conn, guild_id, s.id)?,
+                        name,
+                    )
                 }
-                None => (queries::get_all_completed_periods(&conn, guild_id)?, "History".to_string()),
+                None => (
+                    queries::get_all_completed_periods(&conn, guild_id)?,
+                    "History".to_string(),
+                ),
             }
         };
 
@@ -240,7 +261,12 @@ pub async fn history(
                     .collect();
                 period_data.push(map);
             }
-            Some(HistoryDb { user_ids, periods, period_data, season_name })
+            Some(HistoryDb {
+                user_ids,
+                periods,
+                period_data,
+                season_name,
+            })
         }
     };
 
@@ -260,7 +286,11 @@ pub async fn history(
     let guild = ctx.guild_id().ok_or("Must be used in a guild")?;
 
     // Build week label list once (used by both paths)
-    let week_labels: Vec<String> = hdb.periods.iter().map(|p| period_label(&p.start_time)).collect();
+    let week_labels: Vec<String> = hdb
+        .periods
+        .iter()
+        .map(|p| period_label(&p.start_time))
+        .collect();
 
     if let Some(target_user) = user {
         // --- Single-user full breakdown (image table) ---
@@ -279,34 +309,21 @@ pub async fn history(
             let db = &ctx.data().db;
             let conn = db.conn();
 
-            let summary = if let Ok(Some(gc)) = queries::get_user_goal_config(&conn, guild_id, target_id) {
-                let mut parts = vec![format!("{}/week", gc.total_goal)];
-                if let Ok(type_goals) = {
-                    let mut stmt = conn.prepare(
-                        "SELECT activity_type, goal FROM gym_user_type_goals WHERE guild_id = ? AND user_id = ? ORDER BY activity_type"
-                    ).unwrap();
-                    stmt.query_map(rusqlite::params![guild_id, target_id], |row| Ok((row.get::<_,String>(0)?, row.get::<_,i32>(1)?)))
-                        .map(|rows| rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
-                } {
-                    for (t, g) in &type_goals {
-                        parts.push(format!("{} ≥ {}", t, g));
-                    }
-                }
-                if let Ok(group_goals) = queries::get_user_group_goals(&conn, guild_id, target_id) {
-                    for (g, c) in &group_goals {
-                        parts.push(format!("{} group ≥ {}", g, c));
-                    }
-                }
-                if parts.len() == 1 {
-                    format!("Goal: {}", parts[0])
-                } else {
-                    format!("Goal: {}  +  {}", parts[0], parts[1..].join("  •  "))
-                }
+            let total_goal = queries::get_user_total_goal(&conn, guild_id, target_id)?;
+            let mut parts = vec![format!("{}/week", total_goal)];
+            for (t, g) in queries::get_user_type_goals(&conn, guild_id, target_id)? {
+                parts.push(format!("{} ≥ {}", t, g));
+            }
+            for (g, c) in queries::get_user_group_goals(&conn, guild_id, target_id)? {
+                parts.push(format!("{} group ≥ {}", g, c));
+            }
+            let summary = if parts.len() == 1 {
+                format!("Goal: {}", parts[0])
             } else {
-                String::new()
+                format!("Goal: {}  +  {}", parts[0], parts[1..].join("  •  "))
             };
 
-            let changes = queries::get_all_goal_changes(&conn, guild_id, target_id).unwrap_or_default();
+            let changes = queries::get_all_goal_changes(&conn, guild_id, target_id)?;
             (summary, changes)
         };
 
@@ -321,8 +338,13 @@ pub async fn history(
         for (i, period) in hdb.periods.iter().enumerate() {
             // Goal changes that happened BEFORE this period started (show before first period,
             // or between the previous period end and this period start)
-            let window_start = if i == 0 { "0000-00-00".to_string() } else { hdb.periods[i - 1].end_time.clone() };
-            while gc_idx < goal_changes.len() && goal_changes[gc_idx].0 < period.start_time
+            let window_start = if i == 0 {
+                "0000-00-00".to_string()
+            } else {
+                hdb.periods[i - 1].end_time.clone()
+            };
+            while gc_idx < goal_changes.len()
+                && goal_changes[gc_idx].0 < period.start_time
                 && goal_changes[gc_idx].0 >= window_start
             {
                 entries.push(crate::images::gym::history::UserHistoryEntry::GoalChange {
@@ -331,15 +353,24 @@ pub async fn history(
                 gc_idx += 1;
             }
 
-            let week_label = format!("{} – {}", period_label(&period.start_time), period_label(&period.end_time));
+            let week_label = format!(
+                "{} – {}",
+                period_label(&period.start_time),
+                period_label(&period.end_time)
+            );
             let result = hdb.period_data[i].get(&target_id).cloned();
             if let Some((count, goal_met, loa_exempt, _)) = &result {
                 total_count += count;
                 if !loa_exempt {
-                    if *goal_met { total_met += 1; } else { total_missed += 1; }
+                    if *goal_met {
+                        total_met += 1;
+                    } else {
+                        total_missed += 1;
+                    }
                 }
             }
-            entries.push(crate::images::gym::history::UserHistoryEntry::Week { week_label, result });
+            entries
+                .push(crate::images::gym::history::UserHistoryEntry::Week { week_label, result });
 
             // Goal changes that happened DURING this period
             while gc_idx < goal_changes.len() && goal_changes[gc_idx].0 <= period.end_time {
@@ -367,18 +398,30 @@ pub async fn history(
             total_missed,
         )?;
 
-        tracing::info!("guild={} user={} cmd=history target={} weeks={}", guild_id, ctx.author().id.get(), display_name, hdb.periods.len());
+        tracing::info!(
+            "guild={} user={} cmd=history target={} weeks={}",
+            guild_id,
+            ctx.author().id.get(),
+            display_name,
+            hdb.periods.len()
+        );
         let attachment = serenity::CreateAttachment::bytes(image_data, "user_history.png");
-        ctx.send(poise::CreateReply::default().attachment(attachment)).await?;
+        ctx.send(poise::CreateReply::default().attachment(attachment))
+            .await?;
     } else {
         // --- Full overview heatmap ---
         let mut history_rows = Vec::new();
         for user_id in &hdb.user_ids {
-            let name = match guild.member(ctx.http(), serenity::UserId::new(*user_id)).await {
+            let name = match guild
+                .member(ctx.http(), serenity::UserId::new(*user_id))
+                .await
+            {
                 Ok(member) => member.display_name().to_string(),
                 Err(_) => format!("User {}", user_id),
             };
-            let weeks: Vec<Option<(i32, bool, bool, Vec<(String, i32)>)>> = hdb.period_data.iter()
+            let weeks: Vec<Option<(i32, bool, bool, Vec<(String, i32)>)>> = hdb
+                .period_data
+                .iter()
                 .map(|period_map| period_map.get(user_id).cloned())
                 .collect();
             history_rows.push(crate::images::gym::history::HistoryRow { name, weeks });
@@ -386,15 +429,30 @@ pub async fn history(
 
         // Sort rows by total count across all periods (desc)
         history_rows.sort_by(|a, b| {
-            let sum_a: i32 = a.weeks.iter().filter_map(|w| w.as_ref().map(|(c, _, _, _)| *c)).sum();
-            let sum_b: i32 = b.weeks.iter().filter_map(|w| w.as_ref().map(|(c, _, _, _)| *c)).sum();
+            let sum_a: i32 = a
+                .weeks
+                .iter()
+                .filter_map(|w| w.as_ref().map(|(c, _, _, _)| *c))
+                .sum();
+            let sum_b: i32 = b
+                .weeks
+                .iter()
+                .filter_map(|w| w.as_ref().map(|(c, _, _, _)| *c))
+                .sum();
             sum_b.cmp(&sum_a)
         });
 
-        let image_data = crate::images::gym::history::generate_history_image(&history_rows, &week_labels)?;
+        let image_data =
+            crate::images::gym::history::generate_history_image(&history_rows, &week_labels)?;
         let attachment = serenity::CreateAttachment::bytes(image_data, "history.png");
-        ctx.send(poise::CreateReply::default().attachment(attachment)).await?;
-        tracing::info!("guild={} history overview sent ({} users, {} weeks)", guild_id, history_rows.len(), week_labels.len());
+        ctx.send(poise::CreateReply::default().attachment(attachment))
+            .await?;
+        tracing::info!(
+            "guild={} history overview sent ({} users, {} weeks)",
+            guild_id,
+            history_rows.len(),
+            week_labels.len()
+        );
     }
 
     Ok(())
@@ -418,13 +476,24 @@ async fn autocomplete_season<'a>(ctx: Context<'a>, partial: &'a str) -> Vec<Stri
 
 /// Format a period start/end timestamp into a short "Jan 1" label.
 fn period_label(dt_str: &str) -> String {
-    if dt_str.len() < 10 { return dt_str.to_string(); }
+    if dt_str.len() < 10 {
+        return dt_str.to_string();
+    }
     let month = &dt_str[5..7];
     let day_str = &dt_str[8..10];
     let month_name = match month {
-        "01" => "Jan", "02" => "Feb", "03" => "Mar", "04" => "Apr",
-        "05" => "May", "06" => "Jun", "07" => "Jul", "08" => "Aug",
-        "09" => "Sep", "10" => "Oct", "11" => "Nov", "12" => "Dec",
+        "01" => "Jan",
+        "02" => "Feb",
+        "03" => "Mar",
+        "04" => "Apr",
+        "05" => "May",
+        "06" => "Jun",
+        "07" => "Jul",
+        "08" => "Aug",
+        "09" => "Sep",
+        "10" => "Oct",
+        "11" => "Nov",
+        "12" => "Dec",
         _ => month,
     };
     let day_num: u32 = day_str.parse().unwrap_or(0);
