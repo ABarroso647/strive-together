@@ -5,14 +5,17 @@ use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
 /// Render an SVG string to PNG bytes (shared utility)
-pub fn render_svg_to_png(svg: &str, width: u32, height: u32) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+pub fn render_svg_to_png(
+    svg: &str,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut options = Options::default();
     options.fontdb_mut().load_system_fonts();
     let tree = Tree::from_str(svg, &options)?;
 
     // Create pixmap
-    let mut pixmap = Pixmap::new(width, height)
-        .ok_or("Failed to create pixmap")?;
+    let mut pixmap = Pixmap::new(width, height).ok_or("Failed to create pixmap")?;
 
     // Fill with background color (dark theme)
     pixmap.fill(resvg::tiny_skia::Color::from_rgba8(47, 49, 54, 255));

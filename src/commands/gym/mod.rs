@@ -1,14 +1,14 @@
 // Gym tracker commands
 mod debug;
+mod goals;
 mod groups;
 mod loa;
+mod log;
 mod season;
 mod setup;
-mod users;
-mod types;
-mod log;
-mod goals;
 mod stats;
+mod types;
+mod users;
 
 use crate::{Data, Error};
 
@@ -27,6 +27,7 @@ pub type Context<'a> = poise::Context<'a, Data, Error>;
         "setup::set_period_end",
         "debug::force_rollover",
         "debug::force_register",
+        "debug::re_evaluate",
         "users::user",
         "types::types_cmd",
         "groups::group",

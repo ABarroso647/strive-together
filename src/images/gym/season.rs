@@ -1,12 +1,11 @@
 // Season stats table image — shows per-user stats across all completed periods
 
-use crate::db::gym::queries;
 use crate::db::Database;
-use crate::images::{escape_svg, render_svg_to_png};
+use crate::db::gym::queries;
 use crate::images::gym::summary::capitalize_first;
+use crate::images::{escape_svg, render_svg_to_png};
 use poise::serenity_prelude as serenity;
 use std::collections::HashMap;
-
 
 pub struct SeasonUserRow {
     pub name: String,
@@ -26,17 +25,18 @@ pub async fn build_season_stats_png(
         let conn = db.conn();
 
         // Determine which season to show (current season, or all-time if none)
-        let (season_id, season_label, season_date_range) = match queries::get_current_season(&conn, guild_id)? {
-            Some(s) => {
-                let start = &s.start_time[..10];
-                let range = match &s.end_time {
-                    None => format!("{} → today", start),
-                    Some(end) => format!("{} → {}", start, &end[..10]),
-                };
-                (Some(s.id), s.name.clone(), range)
-            }
-            None => (None, "Season Stats".to_string(), String::new()),
-        };
+        let (season_id, season_label, season_date_range) =
+            match queries::get_current_season(&conn, guild_id)? {
+                Some(s) => {
+                    let start = &s.start_time[..10];
+                    let range = match &s.end_time {
+                        None => format!("{} → today", start),
+                        Some(end) => format!("{} → {}", start, &end[..10]),
+                    };
+                    (Some(s.id), s.name.clone(), range)
+                }
+                None => (None, "Season Stats".to_string(), String::new()),
+            };
 
         let user_stats = queries::get_season_user_stats(&conn, guild_id, season_id)?;
         if user_stats.is_empty() {
@@ -58,10 +58,20 @@ pub async fn build_season_stats_png(
             .filter(|t| type_usage.get(t).copied().unwrap_or(0) > 0)
             .collect();
         active_types.sort_by(|a, b| {
-            type_usage.get(b).unwrap_or(&0).cmp(type_usage.get(a).unwrap_or(&0))
+            type_usage
+                .get(b)
+                .unwrap_or(&0)
+                .cmp(type_usage.get(a).unwrap_or(&0))
         });
 
-        (user_stats, type_stats, week_count, active_types, season_label, season_date_range)
+        (
+            user_stats,
+            type_stats,
+            week_count,
+            active_types,
+            season_label,
+            season_date_range,
+        )
     };
 
     // Fetch Discord names outside DB scope
@@ -73,10 +83,22 @@ pub async fn build_season_stats_png(
             Err(_) => format!("User {}", user_id),
         };
         let type_counts = type_stats.get(&user_id).cloned().unwrap_or_default();
-        rows.push(SeasonUserRow { name, total, goals_met: met, goals_missed: missed, type_counts });
+        rows.push(SeasonUserRow {
+            name,
+            total,
+            goals_met: met,
+            goals_missed: missed,
+            type_counts,
+        });
     }
 
-    generate_season_table(&rows, &active_types, week_count, &season_label, &season_date_range)
+    generate_season_table(
+        &rows,
+        &active_types,
+        week_count,
+        &season_label,
+        &season_date_range,
+    )
 }
 
 pub fn generate_season_table(
@@ -119,7 +141,11 @@ pub fn generate_season_table(
         r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="#ffffff">{}</text>"##,
         PADDING, PADDING + 22, escape_svg(title)
     ));
-    let week_label = if week_count == 1 { "1 week".to_string() } else { format!("{} weeks", week_count) };
+    let week_label = if week_count == 1 {
+        "1 week".to_string()
+    } else {
+        format!("{} weeks", week_count)
+    };
     let subheader = if date_range.is_empty() {
         format!("{} of data", week_label)
     } else {
@@ -145,7 +171,12 @@ pub fn generate_season_table(
     ));
 
     let mut cx = PADDING + NAME_W;
-    for &(label, w) in &[("Total", TOTAL_W), ("✓ Met", MET_W), ("✗ Miss", MISSED_W), ("Rate", RATE_W)] {
+    for &(label, w) in &[
+        ("Total", TOTAL_W),
+        ("✓ Met", MET_W),
+        ("✗ Miss", MISSED_W),
+        ("Rate", RATE_W),
+    ] {
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="11" font-weight="bold" fill="#dcddde" text-anchor="middle">{}</text>"##,
             cx + w / 2, col_text_y, label
@@ -204,8 +235,18 @@ pub fn generate_season_table(
 
         // Rate %
         let total_weeks = row.goals_met + row.goals_missed;
-        let rate = if total_weeks > 0 { row.goals_met * 100 / total_weeks } else { 0 };
-        let rate_color = if rate >= 75 { "#43b581" } else if rate >= 50 { "#faa61a" } else { "#f04747" };
+        let rate = if total_weeks > 0 {
+            row.goals_met * 100 / total_weeks
+        } else {
+            0
+        };
+        let rate_color = if rate >= 75 {
+            "#43b581"
+        } else if rate >= 50 {
+            "#faa61a"
+        } else {
+            "#f04747"
+        };
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="{}" text-anchor="middle">{}%</text>"##,
             cx + RATE_W / 2, text_y, rate_color, rate
@@ -215,8 +256,16 @@ pub fn generate_season_table(
         // Per-type counts
         for at in activity_types {
             let count = row.type_counts.get(at).copied().unwrap_or(0);
-            let (tc, tw) = if count > 0 { ("#dcddde", "normal") } else { ("#4f545c", "normal") };
-            let display = if count > 0 { count.to_string() } else { "—".to_string() };
+            let (tc, tw) = if count > 0 {
+                ("#dcddde", "normal")
+            } else {
+                ("#4f545c", "normal")
+            };
+            let display = if count > 0 {
+                count.to_string()
+            } else {
+                "—".to_string()
+            };
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="13" font-weight="{}" fill="{}" text-anchor="middle">{}</text>"##,
                 cx + TYPE_W / 2, text_y, tw, tc, display
@@ -228,8 +277,10 @@ pub fn generate_season_table(
     // Separator line between header and data
     svg.push_str(&format!(
         r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#40444b" stroke-width="1"/>"##,
-        PADDING, HEADER_H + COL_HDR_H,
-        PADDING + table_w, HEADER_H + COL_HDR_H
+        PADDING,
+        HEADER_H + COL_HDR_H,
+        PADDING + table_w,
+        HEADER_H + COL_HDR_H
     ));
 
     svg.push_str("</svg>");

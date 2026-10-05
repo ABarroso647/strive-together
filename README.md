@@ -54,6 +54,7 @@ All gym tracker commands are under the `/gym` parent:
 | `/gym season end` | End the current season without starting a new one |
 | `/gym season list` | List all seasons |
 | `/gym force_rollover` | Manually trigger a weekly rollover (dev/admin) |
+| `/gym re-evaluate` | Re-check and fix goal results for this season's completed weeks |
 
 ### User
 | Command | Description |
@@ -93,7 +94,7 @@ src/
 │   ├── stats.rs               # status, summary, totals, history
 │   ├── season.rs              # season new/end/list
 │   ├── loa.rs                 # loa request (leave of absence)
-│   └── debug.rs               # force_rollover
+│   └── debug.rs               # force_rollover, re-evaluate
 ├── db/gym/
 │   ├── schema.rs              # All gym_ tables + indexes
 │   ├── models.rs              # GuildConfig, Period, UserGoalConfig, Season

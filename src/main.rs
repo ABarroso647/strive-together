@@ -25,7 +25,9 @@ async fn check_all_role_members_voted(
         Some(guild) => guild
             .members
             .values()
-            .filter(|m| m.roles.contains(&role_id) && m.user.id != bot_id && m.user.id != requester_id)
+            .filter(|m| {
+                m.roles.contains(&role_id) && m.user.id != bot_id && m.user.id != requester_id
+            })
             .map(|m| m.user.id)
             .collect(),
         None => return false,
@@ -42,16 +44,32 @@ async fn check_all_role_members_voted(
     };
 
     // Fetch voters (up to 100 each — sufficient for typical Discord servers)
-    let yes_users = ctx.http
-        .get_reaction_users(channel, msg_id, &ReactionType::Unicode("✅".to_string()), 100, None)
+    let yes_users = ctx
+        .http
+        .get_reaction_users(
+            channel,
+            msg_id,
+            &ReactionType::Unicode("✅".to_string()),
+            100,
+            None,
+        )
         .await
         .unwrap_or_default();
-    let no_users = ctx.http
-        .get_reaction_users(channel, msg_id, &ReactionType::Unicode("❌".to_string()), 100, None)
+    let no_users = ctx
+        .http
+        .get_reaction_users(
+            channel,
+            msg_id,
+            &ReactionType::Unicode("❌".to_string()),
+            100,
+            None,
+        )
         .await
         .unwrap_or_default();
 
-    let voted: std::collections::HashSet<u64> = yes_users.iter().chain(no_users.iter())
+    let voted: std::collections::HashSet<u64> = yes_users
+        .iter()
+        .chain(no_users.iter())
         .map(|u| u.id.get())
         .collect();
 
@@ -98,7 +116,8 @@ async fn main() {
     let token = std::env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN must be set");
 
     // Get database path (default to ./data/gym_tracker.db)
-    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "data/gym_tracker.db".to_string());
+    let db_path =
+        std::env::var("DATABASE_PATH").unwrap_or_else(|_| "data/gym_tracker.db".to_string());
 
     // Ensure data directory exists
     if let Some(parent) = std::path::Path::new(&db_path).parent() {
@@ -107,7 +126,9 @@ async fn main() {
 
     // Initialize database
     let database = db::Database::new(&db_path).expect("Failed to open database");
-    database.init_schema().expect("Failed to initialize database schema");
+    database
+        .init_schema()
+        .expect("Failed to initialize database schema");
     tracing::info!("Database initialized at {}", db_path);
 
     // Create shared data for background tasks
@@ -287,8 +308,8 @@ async fn main() {
         .build();
 
     // Create client
-    let intents = serenity::GatewayIntents::non_privileged()
-        | serenity::GatewayIntents::GUILD_MEMBERS;
+    let intents =
+        serenity::GatewayIntents::non_privileged() | serenity::GatewayIntents::GUILD_MEMBERS;
 
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)

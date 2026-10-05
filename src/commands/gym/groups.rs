@@ -1,12 +1,18 @@
 use super::Context;
-use crate::db::gym::queries;
 use crate::Error;
+use crate::db::gym::queries;
 
 /// Manage activity groups
 #[poise::command(
     slash_command,
     guild_only,
-    subcommands("group_create", "group_delete", "group_list", "group_assign", "group_unassign")
+    subcommands(
+        "group_create",
+        "group_delete",
+        "group_list",
+        "group_assign",
+        "group_unassign"
+    )
 )]
 pub async fn group(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
@@ -44,11 +50,17 @@ pub async fn group_create(
         }
     }
 
-    tracing::info!("guild={} user={} cmd=group_create name={}", guild_id, ctx.author().id.get(), name);
+    tracing::info!(
+        "guild={} user={} cmd=group_create name={}",
+        guild_id,
+        ctx.author().id.get(),
+        name
+    );
     ctx.say(format!(
         "Created group **{}**.\nAssign activity types to it with `/gym group assign {} <type>`.",
         name, name
-    )).await?;
+    ))
+    .await?;
     Ok(())
 }
 
@@ -78,8 +90,17 @@ pub async fn group_delete(
         }
     }
 
-    tracing::info!("guild={} user={} cmd=group_delete name={}", guild_id, ctx.author().id.get(), name);
-    ctx.say(format!("Deleted group **{}**. Activity types that were in this group are now unassigned.", name)).await?;
+    tracing::info!(
+        "guild={} user={} cmd=group_delete name={}",
+        guild_id,
+        ctx.author().id.get(),
+        name
+    );
+    ctx.say(format!(
+        "Deleted group **{}**. Activity types that were in this group are now unassigned.",
+        name
+    ))
+    .await?;
     Ok(())
 }
 
@@ -115,7 +136,8 @@ pub async fn group_list(ctx: Context<'_>) -> Result<(), Error> {
             // Also list unassigned types
             let all_types = queries::get_activity_types(&conn, guild_id)?;
             let type_group_map = queries::get_all_type_groups(&conn, guild_id)?;
-            let unassigned: Vec<&str> = all_types.iter()
+            let unassigned: Vec<&str> = all_types
+                .iter()
                 .filter(|t| !type_group_map.contains_key(*t))
                 .map(|t| t.as_str())
                 .collect();
@@ -161,7 +183,11 @@ pub async fn group_assign(
         }
 
         if !queries::group_exists(&conn, guild_id, &group)? {
-            return Err(format!("Group '{}' doesn't exist. Create it first with `/gym group create`.", group).into());
+            return Err(format!(
+                "Group '{}' doesn't exist. Create it first with `/gym group create`.",
+                group
+            )
+            .into());
         }
 
         if !queries::activity_type_exists(&conn, guild_id, &activity_type)? {
@@ -171,8 +197,18 @@ pub async fn group_assign(
         queries::assign_type_to_group(&conn, guild_id, &activity_type, &group)?;
     }
 
-    tracing::info!("guild={} user={} cmd=group_assign type={} group={}", guild_id, ctx.author().id.get(), activity_type, group);
-    ctx.say(format!("Assigned **{}** to group **{}**.", activity_type, group)).await?;
+    tracing::info!(
+        "guild={} user={} cmd=group_assign type={} group={}",
+        guild_id,
+        ctx.author().id.get(),
+        activity_type,
+        group
+    );
+    ctx.say(format!(
+        "Assigned **{}** to group **{}**.",
+        activity_type, group
+    ))
+    .await?;
     Ok(())
 }
 
@@ -204,8 +240,18 @@ pub async fn group_unassign(
         group.unwrap()
     };
 
-    tracing::info!("guild={} user={} cmd=group_unassign type={} from_group={}", guild_id, ctx.author().id.get(), activity_type, current_group);
-    ctx.say(format!("Removed **{}** from group **{}**.", activity_type, current_group)).await?;
+    tracing::info!(
+        "guild={} user={} cmd=group_unassign type={} from_group={}",
+        guild_id,
+        ctx.author().id.get(),
+        activity_type,
+        current_group
+    );
+    ctx.say(format!(
+        "Removed **{}** from group **{}**.",
+        activity_type, current_group
+    ))
+    .await?;
     Ok(())
 }
 
@@ -238,4 +284,3 @@ async fn autocomplete_activity_type<'a>(ctx: Context<'a>, partial: &'a str) -> V
         .take(25)
         .collect()
 }
-

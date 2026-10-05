@@ -1,7 +1,7 @@
 use super::Context;
+use crate::Error;
 use crate::db::gym::queries;
 use crate::util::time::{format_datetime, get_weekly_period_bounds_with_hour, parse_datetime};
-use crate::Error;
 use chrono::Utc;
 use poise::serenity_prelude as serenity;
 
@@ -34,11 +34,17 @@ pub async fn setup(ctx: Context<'_>) -> Result<(), Error> {
             for (group_name, types) in crate::db::gym::schema::DEFAULT_ACTIVITY_GROUPS {
                 let _ = queries::insert_activity_group(&conn, guild_id, group_name);
                 for activity_type in *types {
-                    let _ = queries::assign_type_to_group(&conn, guild_id, activity_type, group_name);
+                    let _ =
+                        queries::assign_type_to_group(&conn, guild_id, activity_type, group_name);
                 }
             }
 
-            tracing::info!("guild={} user={} cmd=setup channel={}", guild_id, ctx.author().id.get(), channel_id);
+            tracing::info!(
+                "guild={} user={} cmd=setup channel={}",
+                guild_id,
+                ctx.author().id.get(),
+                channel_id
+            );
             format!(
                 "Gym tracker set up in this channel!\n\
                 Default activity types: **lift** (push, pull, legs, upper, lower) and **cardio** (run, bike, machine_cardio, hiit)\n\
@@ -84,7 +90,13 @@ pub async fn start(ctx: Context<'_>) -> Result<(), Error> {
             let season_id = queries::insert_season(&conn, guild_id, "Szn 1", &start_str)?;
             queries::set_period_season(&conn, period_id, season_id)?;
 
-            tracing::info!("guild={} user={} cmd=start period_id={} season_id={}", guild_id, ctx.author().id.get(), period_id, season_id);
+            tracing::info!(
+                "guild={} user={} cmd=start period_id={} season_id={}",
+                guild_id,
+                ctx.author().id.get(),
+                period_id,
+                season_id
+            );
             format!(
                 "Tracking started! **Szn 1** has begun.\n\
                 Current period: {} to {}\n\
@@ -157,11 +169,19 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
         serenity::CreateEmbed::new()
             .title("Gym Tracker Configuration")
             .field("Channel", format!("<#{}>", config.channel_id), true)
-            .field("Status", if config.started { "Active" } else { "Stopped" }, true)
+            .field(
+                "Status",
+                if config.started { "Active" } else { "Stopped" },
+                true,
+            )
             .field("Default Goal", config.default_goal.to_string(), true)
             .field("Current Period", period_info, false)
             .field("Users", format!("{} tracked", users.len()), true)
-            .field("Activity Types", format!("{} configured", types.len()), true)
+            .field(
+                "Activity Types",
+                format!("{} configured", types.len()),
+                true,
+            )
             .color(if config.started { 0x00ff00 } else { 0xff0000 })
     };
 
@@ -170,13 +190,23 @@ pub async fn info(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Configure tracker settings
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", subcommands("config_goal", "config_rollover"))]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    subcommands("config_goal", "config_rollover")
+)]
 pub async fn config(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
 /// Set the default weekly goal for new users
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "goal")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "goal"
+)]
 pub async fn config_goal(
     ctx: Context<'_>,
     #[description = "Default weekly goal"]
@@ -190,15 +220,26 @@ pub async fn config_goal(
         let db = &ctx.data().db;
         let conn = db.conn();
 
-        let config = queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
-        let updated = queries::update_default_goal_for_users(&conn, guild_id, config.default_goal, amount)?;
+        let config =
+            queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
+        let updated =
+            queries::update_default_goal_for_users(&conn, guild_id, config.default_goal, amount)?;
         queries::update_default_goal(&conn, guild_id, amount)?;
         updated
     };
 
-    tracing::info!("guild={} user={} cmd=config_goal amount={} updated_users={}", guild_id, ctx.author().id.get(), amount, updated_users);
+    tracing::info!(
+        "guild={} user={} cmd=config_goal amount={} updated_users={}",
+        guild_id,
+        ctx.author().id.get(),
+        amount,
+        updated_users
+    );
     let msg = if updated_users > 0 {
-        format!("Default goal set to **{}** workouts per week. {} user(s) on the default had their goal updated automatically.", amount, updated_users)
+        format!(
+            "Default goal set to **{}** workouts per week. {} user(s) on the default had their goal updated automatically.",
+            amount, updated_users
+        )
     } else {
         format!("Default goal set to **{}** workouts per week.", amount)
     };
@@ -207,7 +248,12 @@ pub async fn config_goal(
 }
 
 /// Set the hour (UTC) on Sunday when the weekly rollover fires
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "rollover")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "rollover"
+)]
 pub async fn config_rollover(
     ctx: Context<'_>,
     #[description = "Hour of day in UTC (0–23) on Sunday when the week ends"]
@@ -224,11 +270,17 @@ pub async fn config_rollover(
         queries::update_rollover_hour(&conn, guild_id, hour as u32)?;
     }
 
-    tracing::info!("guild={} user={} cmd=config_rollover hour={}", guild_id, ctx.author().id.get(), hour);
+    tracing::info!(
+        "guild={} user={} cmd=config_rollover hour={}",
+        guild_id,
+        ctx.author().id.get(),
+        hour
+    );
     ctx.say(format!(
         "Rollover time set to **Sunday {:02}:00 UTC**. Takes effect on the next period created.",
         hour
-    )).await?;
+    ))
+    .await?;
     Ok(())
 }
 
@@ -241,7 +293,8 @@ pub async fn period_info(ctx: Context<'_>) -> Result<(), Error> {
         let db = &ctx.data().db;
         let conn = db.conn();
         queries::get_guild_config(&conn, guild_id)?.ok_or("Gym tracker not set up.")?;
-        queries::get_current_period(&conn, guild_id)?.ok_or("No active period. Run `/gym start` first.")?
+        queries::get_current_period(&conn, guild_id)?
+            .ok_or("No active period. Run `/gym start` first.")?
     };
 
     let end_time = parse_datetime(&period.end_time)?;
@@ -259,12 +312,18 @@ pub async fn period_info(ctx: Context<'_>) -> Result<(), Error> {
     ctx.say(format!(
         "**Current Period**\nStart: `{}`\nEnd: `{}`\nTime until rollover: {}",
         &period.start_time, &period.end_time, time_str
-    )).await?;
+    ))
+    .await?;
     Ok(())
 }
 
 /// Change when the current period ends (admin only)
-#[poise::command(slash_command, guild_only, required_permissions = "ADMINISTRATOR", rename = "set_period_end")]
+#[poise::command(
+    slash_command,
+    guild_only,
+    required_permissions = "ADMINISTRATOR",
+    rename = "set_period_end"
+)]
 pub async fn set_period_end(
     ctx: Context<'_>,
     #[description = "New end time in RFC3339 format (e.g. 2024-01-08T00:00:00+00:00), or 'now' to end immediately"]
@@ -290,10 +349,13 @@ pub async fn set_period_end(
         )?;
     }
 
-    tracing::info!("guild={} user={} cmd=set_period_end end_time={}", guild_id, ctx.author().id.get(), resolved_time);
-    ctx.say(format!(
-        "Period end time updated to `{}`.",
+    tracing::info!(
+        "guild={} user={} cmd=set_period_end end_time={}",
+        guild_id,
+        ctx.author().id.get(),
         resolved_time
-    )).await?;
+    );
+    ctx.say(format!("Period end time updated to `{}`.", resolved_time))
+        .await?;
     Ok(())
 }

@@ -45,8 +45,9 @@ async fn followup_ephemeral(
 #[poise::command(slash_command, guild_only, rename = "request")]
 pub async fn loa_request(
     ctx: poise::ApplicationContext<'_, Data, Error>,
-    #[description = "Role to @mention in the vote post (e.g. @Gym Crew)"]
-    mention_role: Option<Role>,
+    #[description = "Role to @mention in the vote post (e.g. @Gym Crew)"] mention_role: Option<
+        Role,
+    >,
 ) -> Result<(), Error> {
     let modal_data = match poise::execute_modal(ctx, None::<LoaModal>, None).await? {
         Some(data) => data,
@@ -76,7 +77,11 @@ pub async fn loa_request(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let guild_id = ctx.interaction.guild_id.ok_or("Must be used in a guild")?.get();
+    let guild_id = ctx
+        .interaction
+        .guild_id
+        .ok_or("Must be used in a guild")?
+        .get();
     let user_id = ctx.interaction.user.id.get();
     let mention_role_id = mention_role.as_ref().map(|r| r.id.get());
 
@@ -115,7 +120,10 @@ pub async fn loa_request(
             };
             let period_start = parse_datetime(&period.start_time)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-            Ok(DbOutcome::Ok(DbResult { channel_id: config.channel_id, period_start }))
+            Ok(DbOutcome::Ok(DbResult {
+                channel_id: config.channel_id,
+                period_start,
+            }))
         })();
         match result {
             Ok(o) => o,
@@ -138,7 +146,11 @@ pub async fn loa_request(
             return Ok(());
         }
         DbOutcome::NoPeriod => {
-            followup_ephemeral(ctx, "No active tracking period. Ask an admin to run `/gym start`.").await?;
+            followup_ephemeral(
+                ctx,
+                "No active tracking period. Ask an admin to run `/gym start`.",
+            )
+            .await?;
             return Ok(());
         }
         DbOutcome::DbError(e) => return Err(e),
@@ -172,7 +184,7 @@ pub async fn loa_request(
     };
     let loa_end = loa_start + Duration::weeks(weeks as i64);
 
-    // Build covered-period list for the confirmation preview
+    // Covered periods, listed in the confirmation and the vote message
     let covered: Vec<(i64, i64)> = (0..weeks)
         .map(|i| {
             let s = (loa_start + Duration::weeks(i as i64)).timestamp();
@@ -181,7 +193,8 @@ pub async fn loa_request(
         })
         .collect();
 
-    let periods_preview = covered.iter()
+    let periods_preview = covered
+        .iter()
         .enumerate()
         .map(|(i, (s, e))| format!("Period {}: <t:{}:D> → <t:{}:D>", i + 1, s, e))
         .collect::<Vec<_>>()
@@ -226,20 +239,30 @@ pub async fn loa_request(
     let mci = match clicked {
         None => {
             // Timed out — remove buttons so it can't be clicked late
-            confirm_msg.edit(
-                ctx.serenity_context,
-                serenity::EditMessage::new()
-                    .content("LOA request timed out.")
-                    .components(vec![]),
-            ).await.ok();
+            confirm_msg
+                .edit(
+                    ctx.serenity_context,
+                    serenity::EditMessage::new()
+                        .content("LOA request timed out.")
+                        .components(vec![]),
+                )
+                .await
+                .ok();
             return Ok(());
         }
         Some(mci) => mci,
     };
 
     // Dismiss the confirmation message entirely
-    mci.create_response(ctx.serenity_context, serenity::CreateInteractionResponse::Acknowledge).await?;
-    ctx.interaction.delete_followup(ctx.serenity_context, confirm_msg.id).await.ok();
+    mci.create_response(
+        ctx.serenity_context,
+        serenity::CreateInteractionResponse::Acknowledge,
+    )
+    .await?;
+    ctx.interaction
+        .delete_followup(ctx.serenity_context, confirm_msg.id)
+        .await
+        .ok();
 
     if mci.data.custom_id == "loa_cancel" {
         return Ok(());
@@ -252,22 +275,45 @@ pub async fn loa_request(
     let vote_ends_unix = vote_ends_at.timestamp();
 
     let vote_content = format!(
-        "{}🏖️ **Leave of Absence Request**\n<@{}> is requesting a **{}-week** leave (<t:{}:D> → <t:{}:D>).\nThey can still log workouts, but missed-goal weeks won't count against them.\n\nReact ✅ to **approve** or ❌ to **deny** — voting closes <t:{}:R>.",
-        if mention_str.is_empty() { String::new() } else { format!("{} ", mention_str) },
+        "{}🏖️ **Leave of Absence Request**\n<@{}> is requesting a \
+        leave **from <t:{}:D> through <t:{}:D>**.\
+        \nThis covers {} periods as follows:\
+        \n{}\
+        \nThey can still log workouts, but missed-goal weeks won't count against them.\
+        \n\nReact ✅ to **approve** or ❌ to **deny** — voting closes <t:{}:R>.",
+        if mention_str.is_empty() {
+            String::new()
+        } else {
+            format!("{} ", mention_str)
+        },
         user_id,
-        weeks,
         loa_start.timestamp(),
         loa_end.timestamp(),
+        weeks,
+        periods_preview,
         vote_ends_unix
     );
 
     let channel = ChannelId::new(db_result.channel_id);
     let vote_msg = channel
-        .send_message(ctx.serenity_context, serenity::CreateMessage::new().content(vote_content))
+        .send_message(
+            ctx.serenity_context,
+            serenity::CreateMessage::new().content(vote_content),
+        )
         .await?;
 
-    vote_msg.react(ctx.serenity_context, serenity::ReactionType::Unicode("✅".to_string())).await?;
-    vote_msg.react(ctx.serenity_context, serenity::ReactionType::Unicode("❌".to_string())).await?;
+    vote_msg
+        .react(
+            ctx.serenity_context,
+            serenity::ReactionType::Unicode("✅".to_string()),
+        )
+        .await?;
+    vote_msg
+        .react(
+            ctx.serenity_context,
+            serenity::ReactionType::Unicode("❌".to_string()),
+        )
+        .await?;
 
     // --- Persist ---
     let loa_start_str = format_datetime(&loa_start);
@@ -293,7 +339,12 @@ pub async fn loa_request(
 
     tracing::info!(
         "guild={} user={} cmd=loa_request weeks={} start={} end={} loa_id={}",
-        guild_id, user_id, weeks, &loa_start_str[..10], &loa_end_str[..10], loa_id
+        guild_id,
+        user_id,
+        weeks,
+        &loa_start_str[..10],
+        &loa_end_str[..10],
+        loa_id
     );
 
     Ok(())
@@ -320,7 +371,8 @@ pub async fn loa_resolve(
     let loa = match loa {
         Some(l) => l,
         None => {
-            ctx.say(format!("<@{}> has no pending LOA request.", user.id.get())).await?;
+            ctx.say(format!("<@{}> has no pending LOA request.", user.id.get()))
+                .await?;
             return Ok(());
         }
     };

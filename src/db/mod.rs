@@ -32,7 +32,11 @@ impl Database {
         // Run migrations (errors silently ignored — handles already-applied migrations)
         for migration in gym::schema::MIGRATIONS {
             if let Err(e) = conn.execute_batch(migration) {
-                tracing::debug!("Migration skipped (already applied?): {} — {}", migration, e);
+                tracing::debug!(
+                    "Migration skipped (already applied?): {} — {}",
+                    migration,
+                    e
+                );
             }
         }
 

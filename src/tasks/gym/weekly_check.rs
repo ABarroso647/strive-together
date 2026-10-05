@@ -5,9 +5,9 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use tokio::time::Duration;
 
+use crate::Data;
 use crate::db::gym::queries;
 use crate::util::time::{get_period_end_time, get_period_start_time, parse_datetime};
-use crate::Data;
 
 /// Convert an RFC3339 datetime string to a short human-readable date like "Jan 6"
 fn format_short_date(dt_str: &str) -> String {
@@ -29,21 +29,45 @@ fn next_rollover_time(conn: &Connection) -> Option<chrono::DateTime<Utc>> {
     result.ok().flatten().and_then(|s| parse_datetime(&s).ok())
 }
 
+/// Exponential backoff after `failures` consecutive failed rollovers: 1s, 2s, 4s, … capped at 1h.
+fn rollover_retry_delay(failures: u32) -> Duration {
+    const BASE_SECS: u64 = 1;
+    const FACTOR: u64 = 2;
+    const MAX_SECS: u64 = 3600;
+    let secs = FACTOR
+        .checked_pow(failures.saturating_sub(1))
+        .and_then(|m| m.checked_mul(BASE_SECS))
+        .map_or(MAX_SECS, |s| s.min(MAX_SECS));
+    Duration::from_secs(secs)
+}
+
 /// Start the background task that handles gym period rollovers.
 /// On each iteration it:
 ///   1. Processes any overdue rollovers immediately.
 ///   2. Reads the next period end_time from DB and sleeps until then.
 /// On restart the DB already has the stored end_time so the sleep recalculates correctly.
+/// Failed rollovers are retried with exponential backoff.
 pub fn start_weekly_check_task(http: Arc<Http>, data: Arc<Data>) {
     tokio::spawn(async move {
         // Brief startup delay
         tokio::time::sleep(Duration::from_secs(30)).await;
 
+        let mut failures: u32 = 0;
         loop {
             // Process any overdue rollovers first
             if let Err(e) = check_and_rollover_periods(&http, &data).await {
-                tracing::error!("Error in gym weekly check task: {}", e);
+                failures += 1;
+                let delay = rollover_retry_delay(failures);
+                tracing::error!(
+                    "Error in gym weekly check task: {} (attempt {}, retrying in {}s)",
+                    e,
+                    failures,
+                    delay.as_secs()
+                );
+                tokio::time::sleep(delay).await;
+                continue;
             }
+            failures = 0;
 
             // Read next rollover time from DB
             let next = {
@@ -102,6 +126,7 @@ async fn check_and_rollover_periods(
         to_process
     };
 
+    let mut failed = 0;
     for (guild_config, period) in guilds_to_process {
         tracing::info!(
             "Rolling over gym period for guild {} (period {})",
@@ -114,9 +139,13 @@ async fn check_and_rollover_periods(
                 guild_config.guild_id,
                 e
             );
+            failed += 1;
         }
     }
 
+    if failed > 0 {
+        return Err(format!("{} guild rollover(s) failed", failed).into());
+    }
     Ok(())
 }
 
@@ -143,15 +172,11 @@ pub async fn rollover_period(
     let users_data = {
         let conn = data.db.conn();
         let user_ids = queries::get_users(&conn, guild_id)?;
-        let type_group_map = queries::get_all_type_groups(&conn, guild_id)?;
         let mut users_data = Vec::new();
         for user_id in user_ids {
             let total = queries::get_user_period_count(&conn, period.id, user_id)?;
             let type_counts = queries::get_user_period_type_counts(&conn, period.id, user_id)?;
-            let goal_config = queries::get_user_goal_config(&conn, guild_id, user_id)?;
-            let goal_met = crate::images::gym::summary::evaluate_goal_met(
-                &conn, guild_id, user_id, total, &type_counts, &goal_config, &type_group_map,
-            )?;
+            let goal_met = queries::evaluate_goal_met(&conn, guild_id, user_id, period.id)?;
             users_data.push((user_id, total, goal_met, type_counts));
         }
         users_data
@@ -164,19 +189,50 @@ pub async fn rollover_period(
         for (user_id, total, goal_met, type_counts) in &users_data {
             // Check if user has an active LOA covering this period
             let on_loa = queries::get_active_loa_for_user(
-                &conn, guild_id, *user_id, &period.start_time, &period.end_time
-            )?.is_some();
+                &conn,
+                guild_id,
+                *user_id,
+                &period.start_time,
+                &period.end_time,
+            )?
+            .is_some();
 
-            queries::insert_period_result(&conn, period.id, *user_id, *total, if on_loa { false } else { *goal_met }, on_loa)?;
+            queries::insert_period_result(
+                &conn,
+                period.id,
+                *user_id,
+                *total,
+                if on_loa { false } else { *goal_met },
+                on_loa,
+            )?;
             for (activity_type, count) in type_counts {
-                queries::insert_period_type_count(&conn, period.id, *user_id, activity_type, *count)?;
+                queries::insert_period_type_count(
+                    &conn,
+                    period.id,
+                    *user_id,
+                    activity_type,
+                    *count,
+                )?;
             }
             // LOA: count still accumulates, but goal stats are frozen
             let achieved_delta = if !on_loa && *goal_met { 1 } else { 0 };
             let missed_delta = if !on_loa && !*goal_met { 1 } else { 0 };
-            queries::update_user_totals(&conn, guild_id, *user_id, *total, achieved_delta, missed_delta)?;
+            queries::update_user_totals(
+                &conn,
+                guild_id,
+                *user_id,
+                *total,
+                achieved_delta,
+                missed_delta,
+            )?;
             for (activity_type, count) in type_counts {
-                queries::increment_user_type_total(&conn, guild_id, *user_id, activity_type, *count)?;
+                queries::increment_user_type_total(
+                    &conn,
+                    guild_id,
+                    *user_id,
+                    activity_type,
+                    *count,
+                )?;
             }
         }
 
@@ -222,37 +278,63 @@ pub async fn rollover_period(
         guild_id,
         period,
         "Weekly Summary - Period Complete",
-    ).await?;
+    )
+    .await?;
 
-    let season_data = match crate::images::gym::season::build_season_stats_png(
-        &data.db,
-        http,
-        guild_id,
-    ).await {
-        Ok(d) => Some(d),
-        Err(e) => {
-            tracing::error!("Failed to build season stats image for guild {}: {}", guild_id, e);
-            None
-        }
-    };
+    let season_data =
+        match crate::images::gym::season::build_season_stats_png(&data.db, http, guild_id).await {
+            Ok(d) => Some(d),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to build season stats image for guild {}: {}",
+                    guild_id,
+                    e
+                );
+                None
+            }
+        };
 
     let channel = ChannelId::new(guild_config.channel_id);
 
-    let mentions = users_data.iter().map(|(uid, _, _, _)| format!("<@{}>", uid)).collect::<Vec<_>>().join(" ");
-    let summary_header = format!("**Weekly Summary — {} to {}**\n{}", period_start, period_end, mentions);
-    channel.send_message(http, serenity::CreateMessage::new()
-        .content(summary_header)
-        .add_file(serenity::CreateAttachment::bytes(summary_data, "weekly_summary.png"))
-    ).await?;
+    let mentions = users_data
+        .iter()
+        .map(|(uid, _, _, _)| format!("<@{}>", uid))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let summary_header = format!(
+        "**Weekly Summary — {} to {}**\n{}",
+        period_start, period_end, mentions
+    );
+    channel
+        .send_message(
+            http,
+            serenity::CreateMessage::new()
+                .content(summary_header)
+                .add_file(serenity::CreateAttachment::bytes(
+                    summary_data,
+                    "weekly_summary.png",
+                )),
+        )
+        .await?;
 
     if let Some(season) = season_data {
         let season_header = format!("**{} Stats — totals through {}**", season_name, period_end);
-        channel.send_message(http, serenity::CreateMessage::new()
-            .content(season_header)
-            .add_file(serenity::CreateAttachment::bytes(season, "season_stats.png"))
-        ).await?;
+        channel
+            .send_message(
+                http,
+                serenity::CreateMessage::new()
+                    .content(season_header)
+                    .add_file(serenity::CreateAttachment::bytes(
+                        season,
+                        "season_stats.png",
+                    )),
+            )
+            .await?;
     }
 
-    tracing::info!("Successfully rolled over gym period for guild {}", guild_config.guild_id);
+    tracing::info!(
+        "Successfully rolled over gym period for guild {}",
+        guild_config.guild_id
+    );
     Ok(())
 }
