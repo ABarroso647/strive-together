@@ -12,6 +12,7 @@ pub struct SeasonUserRow {
     pub total: i32,
     pub goals_met: i32,
     pub goals_missed: i32,
+    pub loa_weeks: i32,
     /// Per-type counts this season (activity_type → count)
     pub type_counts: HashMap<String, i32>,
 }
@@ -77,7 +78,7 @@ pub async fn build_season_stats_png(
     // Fetch Discord names outside DB scope
     let guild = serenity::GuildId::new(guild_id);
     let mut rows = Vec::new();
-    for (user_id, total, met, missed) in user_stats {
+    for (user_id, total, met, missed, loa_weeks) in user_stats {
         let name = match guild.member(http, serenity::UserId::new(user_id)).await {
             Ok(m) => m.display_name().to_string(),
             Err(_) => format!("User {}", user_id),
@@ -88,6 +89,7 @@ pub async fn build_season_stats_png(
             total,
             goals_met: met,
             goals_missed: missed,
+            loa_weeks,
             type_counts,
         });
     }
@@ -116,10 +118,11 @@ pub fn generate_season_table(
     const TOTAL_W: u32 = 54;
     const MET_W: u32 = 46;
     const MISSED_W: u32 = 52;
+    const LOA_W: u32 = 44;
     const RATE_W: u32 = 54;
     const TYPE_W: u32 = 50;
     let n_types = activity_types.len() as u32;
-    let stats_w = TOTAL_W + MET_W + MISSED_W + RATE_W;
+    let stats_w = TOTAL_W + MET_W + MISSED_W + LOA_W + RATE_W;
     let types_w = n_types * TYPE_W;
     let table_w = NAME_W + stats_w + types_w;
     let image_w = PADDING * 2 + table_w;
@@ -175,6 +178,7 @@ pub fn generate_season_table(
         ("Total", TOTAL_W),
         ("✓ Met", MET_W),
         ("✗ Miss", MISSED_W),
+        ("LOA", LOA_W),
         ("Rate", RATE_W),
     ] {
         svg.push_str(&format!(
@@ -232,6 +236,17 @@ pub fn generate_season_table(
             cx + MISSED_W / 2, text_y, row.goals_missed
         ));
         cx += MISSED_W;
+
+        let loa_display = if row.loa_weeks > 0 {
+            row.loa_weeks.to_string()
+        } else {
+            "—".to_string()
+        };
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" font-family="DejaVu Sans" font-size="14" font-weight="bold" fill="#5b8fbd" text-anchor="middle">{}</text>"##,
+            cx + LOA_W / 2, text_y, loa_display
+        ));
+        cx += LOA_W;
 
         // Rate %
         let total_weeks = row.goals_met + row.goals_missed;

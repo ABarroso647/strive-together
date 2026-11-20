@@ -188,14 +188,9 @@ pub async fn rollover_period(
 
         for (user_id, total, goal_met, type_counts) in &users_data {
             // Check if user has an active LOA covering this period
-            let on_loa = queries::get_active_loa_for_user(
-                &conn,
-                guild_id,
-                *user_id,
-                &period.start_time,
-                &period.end_time,
-            )?
-            .is_some();
+            let on_loa =
+                queries::get_active_loa_for_user(&conn, guild_id, *user_id, &period.start_time)?
+                    .is_some();
 
             queries::insert_period_result(
                 &conn,

@@ -150,8 +150,13 @@ pub async fn resolve_loa_vote(
     );
 
     let result_msg = if approved {
-        let start_str = loa.loa_start.as_deref().map(|s| &s[..10]).unwrap_or("?");
-        let end_str = loa.loa_end.as_deref().map(|s| &s[..10]).unwrap_or("?");
+        let fmt = |s: Option<&str>| {
+            s.and_then(|s| parse_datetime(s).ok())
+                .map(|dt| crate::util::time::format_utc_short(&dt))
+                .unwrap_or_else(|| "?".to_string())
+        };
+        let start_str = fmt(loa.loa_start.as_deref());
+        let end_str = fmt(loa.loa_end.as_deref());
         if yes_votes == 0 && no_votes == 0 {
             format!(
                 "✅ **LOA Approved** (no votes cast — auto-approved) — <@{}>'s {}-week leave is granted ({} → {}). Goal stats are paused until then.",

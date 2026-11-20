@@ -65,7 +65,7 @@ pub async fn force_rollover(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Re-check every user's goal for each completed week this season and fix wrong results
+/// Re-check every user's goal and LOA status for each completed week this season and fix wrong results
 #[poise::command(
     slash_command,
     guild_only,
@@ -86,6 +86,24 @@ pub async fn re_evaluate(ctx: Context<'_>) -> Result<(), Error> {
         for period in &periods {
             for (user_id, _, goal_met, loa_exempt) in queries::get_period_results(&conn, period.id)?
             {
+                if let Some(now_loa) = queries::reevaluate_period_loa(
+                    &conn,
+                    guild_id,
+                    period.id,
+                    &period.start_time,
+                    user_id,
+                    goal_met,
+                    loa_exempt,
+                )? {
+                    fixed.push(format!(
+                        "<@{}> week of {} to {}: {}",
+                        user_id,
+                        &period.start_time[..10],
+                        &period.end_time[..10],
+                        if now_loa { "→ LOA" } else { "LOA removed" },
+                    ));
+                    continue;
+                }
                 if queries::reevaluate_period_goal(
                     &conn, guild_id, period.id, user_id, goal_met, loa_exempt,
                 )? {
@@ -112,7 +130,7 @@ pub async fn re_evaluate(ctx: Context<'_>) -> Result<(), Error> {
     );
     let response = if fixed.is_empty() {
         format!(
-            "Re-evaluated {} week(s) this season — all goal results were correct.",
+            "Re-evaluated {} week(s) this season — all goal and LOA results were correct.",
             week_count
         )
     } else {
