@@ -46,14 +46,9 @@ pub async fn build_period_summary_png(
             let sub_goals =
                 collect_sub_goals(&conn, guild_id, user_id, &type_counts, &type_group_map)?;
 
-            let on_loa = queries::get_active_loa_for_user(
-                &conn,
-                guild_id,
-                user_id,
-                &period.start_time,
-                &period.end_time,
-            )?
-            .is_some();
+            let on_loa =
+                queries::get_active_loa_for_user(&conn, guild_id, user_id, &period.start_time)?
+                    .is_some();
 
             let type_vec: Vec<_> = type_counts.into_iter().collect();
             users_data.push((

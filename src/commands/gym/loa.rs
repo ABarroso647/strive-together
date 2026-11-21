@@ -1,5 +1,6 @@
 use crate::db::gym::queries;
-use crate::util::time::{format_datetime, parse_datetime};
+use crate::util::loa;
+use crate::util::time::{format_datetime, format_utc_short, parse_datetime};
 use crate::{Data, Error};
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use poise::serenity_prelude::{self as serenity, ChannelId, Role};
@@ -161,71 +162,117 @@ pub async fn loa_request(
     // covers exactly N complete periods (so rollover exemption is clean).
     let period_start = db_result.period_start;
 
-    let loa_start = match start_date_str {
+    let requested_date = match start_date_str {
+        None => None,
+        Some(ref s) => match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            Ok(d) => Some(d),
+            Err(_) => {
+                followup_ephemeral(
+                    ctx,
+                    "Invalid start date — use YYYY-MM-DD format (e.g. 2025-06-01).",
+                )
+                .await?;
+                return Ok(());
+            }
+        },
+    };
+    let loa_start = match requested_date {
         None => period_start,
-        Some(ref s) => {
-            let nd = match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-                Ok(d) => d,
-                Err(_) => {
-                    followup_ephemeral(
-                        ctx,
-                        "Invalid start date — use YYYY-MM-DD format (e.g. 2025-06-01).",
-                    )
-                    .await?;
-                    return Ok(());
-                }
-            };
+        Some(nd) => {
             let requested = Utc.from_utc_datetime(&nd.and_hms_opt(0, 0, 0).unwrap());
-            // Snap forward to the nearest period boundary on or containing the requested date
-            // (floor division: requested within a period → that period's start)
             let days_diff = (requested - period_start).num_days().max(0);
             period_start + Duration::weeks(days_diff / 7)
         }
     };
-    let loa_end = loa_start + Duration::weeks(weeks as i64);
+    let rollover_day = requested_date.filter(|d| weeks < 12 && loa::is_rollover_day(loa_start, *d));
 
-    // Covered periods, listed in the confirmation and the vote message
-    let covered: Vec<(i64, i64)> = (0..weeks)
-        .map(|i| {
-            let s = (loa_start + Duration::weeks(i as i64)).timestamp();
-            let e = (loa_start + Duration::weeks(i as i64 + 1)).timestamp();
-            (s, e)
-        })
-        .collect();
-
-    let periods_preview = covered
-        .iter()
-        .enumerate()
-        .map(|(i, (s, e))| format!("Period {}: <t:{}:D> → <t:{}:D>", i + 1, s, e))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let preview = |weeks: i32| {
+        loa::covered_weeks(loa_start, loa::loa_end(loa_start, weeks as i64))
+            .iter()
+            .enumerate()
+            .map(|(i, (s, e))| {
+                format!(
+                    "Week {}: {} → {}",
+                    i + 1,
+                    format_utc_short(s),
+                    format_utc_short(e)
+                )
+            })
+            .collect::<Vec<_>>()
+    };
 
     let mention_str = mention_role
         .as_ref()
         .map(|r| format!("<@&{}>", r.id.get()))
         .unwrap_or_default();
+    let notify_line = if mention_str.is_empty() {
+        String::new()
+    } else {
+        format!("Notifying {}\n", mention_str)
+    };
+    let weeks_label = |n: i32| {
+        if n == 1 {
+            "1 week".to_string()
+        } else {
+            format!("{} weeks", n)
+        }
+    };
 
     // --- Confirmation step ---
-    let mut confirm_msg = ctx.interaction
-        .create_followup(
-            ctx.serenity_context,
-            serenity::CreateInteractionResponseFollowup::new()
-                .content(format!(
-                    "**{}-week LOA** — this will pause your goal tracking for:\n{}\n{}Post vote to <#{}>?",
-                    weeks,
-                    periods_preview,
-                    if mention_str.is_empty() { String::new() } else { format!("Notifying {}\n", mention_str) },
+    let (confirm_content, buttons) = match rollover_day {
+        None => (
+            format!(
+                "**{} LOA** — this will pause your goal tracking for:\n{}\n{}Post vote to <#{}>?",
+                weeks_label(weeks),
+                preview(weeks).join("\n"),
+                notify_line,
+                db_result.channel_id,
+            ),
+            vec![
+                serenity::CreateButton::new("loa_confirm")
+                    .label("Post Vote")
+                    .style(serenity::ButtonStyle::Success),
+                serenity::CreateButton::new("loa_cancel")
+                    .label("Cancel")
+                    .style(serenity::ButtonStyle::Secondary),
+            ],
+        ),
+        Some(_) => {
+            let mut lines = preview(weeks + 1);
+            if let Some(last) = lines.last_mut() {
+                last.push_str(&format!(" _(only with {})_", weeks_label(weeks + 1)));
+            }
+            (
+                format!(
+                    "📅 **{} is the weekly rollover**, so your start date falls in two weeks.\n{}\n{}Post vote to <#{}>?",
+                    format_utc_short(&loa::week_end(loa_start)),
+                    lines.join("\n"),
+                    notify_line,
                     db_result.channel_id,
-                ))
-                .ephemeral(true)
-                .components(vec![serenity::CreateActionRow::Buttons(vec![
-                    serenity::CreateButton::new("loa_confirm")
-                        .label("Post Vote")
+                ),
+                vec![
+                    serenity::CreateButton::new("loa_confirm_extra")
+                        .label(weeks_label(weeks + 1))
                         .style(serenity::ButtonStyle::Success),
+                    serenity::CreateButton::new("loa_confirm")
+                        .label(format!("Just {}", weeks_label(weeks)))
+                        .style(serenity::ButtonStyle::Primary),
                     serenity::CreateButton::new("loa_cancel")
                         .label("Cancel")
                         .style(serenity::ButtonStyle::Secondary),
-                ])]),
+                ],
+            )
+        }
+    };
+
+    let mut confirm_msg = ctx
+        .interaction
+        .create_followup(
+            ctx.serenity_context,
+            serenity::CreateInteractionResponseFollowup::new()
+                .content(confirm_content)
+                .ephemeral(true)
+                .components(vec![serenity::CreateActionRow::Buttons(buttons)]),
         )
         .await?;
 
@@ -268,6 +315,14 @@ pub async fn loa_request(
         return Ok(());
     }
 
+    let weeks = if mci.data.custom_id == "loa_confirm_extra" {
+        weeks + 1
+    } else {
+        weeks
+    };
+    let loa_end = loa::loa_end(loa_start, weeks as i64);
+    let periods_preview = preview(weeks).join("\n");
+
     // --- Post vote message ---
     let now = Utc::now();
     let vote_ends_at = now + Duration::hours(24);
@@ -276,7 +331,7 @@ pub async fn loa_request(
 
     let vote_content = format!(
         "{}🏖️ **Leave of Absence Request**\n<@{}> is requesting a \
-        leave **from <t:{}:D> through <t:{}:D>**.\
+        leave **from {} to {}**.\
         \nThis covers {} periods as follows:\
         \n{}\
         \nThey can still log workouts, but missed-goal weeks won't count against them.\
@@ -287,8 +342,8 @@ pub async fn loa_request(
             format!("{} ", mention_str)
         },
         user_id,
-        loa_start.timestamp(),
-        loa_end.timestamp(),
+        format_utc_short(&loa_start),
+        format_utc_short(&loa_end),
         weeks,
         periods_preview,
         vote_ends_unix

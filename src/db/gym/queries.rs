@@ -756,12 +756,13 @@ pub fn get_season_user_stats(
     conn: &Connection,
     guild_id: u64,
     season_id: Option<i64>,
-) -> Result<Vec<(u64, i32, i32, i32)>, rusqlite::Error> {
+) -> Result<Vec<(u64, i32, i32, i32, i32)>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT pr.user_id,
                 COALESCE(SUM(pr.total_count), 0),
-                COALESCE(SUM(CASE WHEN pr.goal_met = 1 THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN pr.goal_met = 0 THEN 1 ELSE 0 END), 0)
+                COALESCE(SUM(CASE WHEN pr.loa_exempt = 0 AND pr.goal_met = 1 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN pr.loa_exempt = 0 AND pr.goal_met = 0 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN pr.loa_exempt = 1 THEN 1 ELSE 0 END), 0)
          FROM gym_period_results pr
          JOIN gym_periods p ON pr.period_id = p.id
          WHERE p.guild_id = ? AND p.is_current = 0 AND (? IS NULL OR p.season_id = ?)
@@ -775,6 +776,7 @@ pub fn get_season_user_stats(
                 row.get::<_, i32>(1)?,
                 row.get::<_, i32>(2)?,
                 row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -991,6 +993,37 @@ pub fn set_period_goal_met(
 
 /// Re-check a closed period's stored goal result against its logs; if wrong, fix it and move
 /// one count between achieved/missed. LOA weeks are skipped. Returns true if it changed.
+pub fn reevaluate_period_loa(
+    conn: &Connection,
+    guild_id: u64,
+    period_id: i64,
+    period_start: &str,
+    user_id: u64,
+    stored_goal_met: bool,
+    stored_loa_exempt: bool,
+) -> Result<Option<bool>, crate::Error> {
+    let on_loa = get_active_loa_for_user(conn, guild_id, user_id, period_start)?.is_some();
+    if on_loa == stored_loa_exempt {
+        return Ok(None);
+    }
+    let (goal_met, achieved_delta, missed_delta) = if on_loa {
+        if stored_goal_met {
+            (false, -1, 0)
+        } else {
+            (false, 0, -1)
+        }
+    } else {
+        let met = evaluate_goal_met(conn, guild_id, user_id, period_id)?;
+        if met { (true, 1, 0) } else { (false, 0, 1) }
+    };
+    conn.execute(
+        "UPDATE gym_period_results SET goal_met = ?, loa_exempt = ? WHERE period_id = ? AND user_id = ?",
+        params![goal_met as i32, on_loa as i32, period_id, user_id],
+    )?;
+    update_user_totals(conn, guild_id, user_id, 0, achieved_delta, missed_delta)?;
+    Ok(Some(on_loa))
+}
+
 pub fn reevaluate_period_goal(
     conn: &Connection,
     guild_id: u64,
@@ -1342,29 +1375,38 @@ pub fn resolve_loa(conn: &Connection, id: i64, status: &str) -> Result<(), rusql
     Ok(())
 }
 
-/// Returns the active approved LOA for a user if their LOA window overlaps the given period.
 pub fn get_active_loa_for_user(
     conn: &Connection,
     guild_id: u64,
     user_id: u64,
     period_start: &str,
-    period_end: &str,
 ) -> Result<Option<LoaRequest>, rusqlite::Error> {
-    conn.query_row(
-        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status IN ('approved', 'pending') AND loa_start <= ? AND loa_end >= ?",
-        params![guild_id, user_id, period_end, period_start],
-        |row| Ok(LoaRequest {
-            id: row.get(0)?,
-            guild_id: row.get(1)?,
-            user_id: row.get(2)?,
-            weeks: row.get(3)?,
-            vote_message_id: row.get(4)?,
-            vote_channel_id: row.get(5)?,
-            loa_start: row.get(6)?,
-            loa_end: row.get(7)?,
-            mention_role_id: row.get(8)?,
-        }),
-    ).optional()
+    let Ok(week_start) = crate::util::time::parse_datetime(period_start) else {
+        return Ok(None);
+    };
+    let mut stmt = conn.prepare(
+        "SELECT id, guild_id, user_id, weeks, vote_message_id, vote_channel_id, loa_start, loa_end, mention_role_id FROM gym_loa_requests WHERE guild_id = ? AND user_id = ? AND status IN ('approved', 'pending') AND loa_start IS NOT NULL AND loa_end IS NOT NULL ORDER BY id",
+    )?;
+    let loas = stmt
+        .query_map(params![guild_id, user_id], |row| {
+            Ok(LoaRequest {
+                id: row.get(0)?,
+                guild_id: row.get(1)?,
+                user_id: row.get(2)?,
+                weeks: row.get(3)?,
+                vote_message_id: row.get(4)?,
+                vote_channel_id: row.get(5)?,
+                loa_start: row.get(6)?,
+                loa_end: row.get(7)?,
+                mention_role_id: row.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(loas.into_iter().find(|loa| {
+        let start = loa.loa_start.as_deref().and_then(|s| crate::util::time::parse_datetime(s).ok());
+        let end = loa.loa_end.as_deref().and_then(|s| crate::util::time::parse_datetime(s).ok());
+        matches!((start, end), (Some(s), Some(e)) if crate::util::loa::covers_week(s, e, week_start))
+    }))
 }
 
 /// Look up a pending LOA by its vote message ID (for real-time reaction handling).
@@ -1563,6 +1605,149 @@ mod tests {
         assert_eq!(totals(&conn), (1, 0, 1));
         backfill_log(&conn, GUILD, USER, period, "push", "t").unwrap();
         assert_eq!(result(&conn, period), Some((2, true, false)));
+        assert_eq!(totals(&conn), (2, 1, 0));
+    }
+
+    #[test]
+    fn loa_weeks_shown_match_weeks_exempted_for_prod_loas() {
+        use crate::util::loa::covered_weeks;
+        use crate::util::time::{format_datetime, parse_datetime};
+        use chrono::{Duration, TimeZone, Utc};
+
+        let db = Database::new(":memory:").unwrap();
+        db.init_schema().unwrap();
+        let conn = db.conn();
+        insert_guild_config(&conn, GUILD, 99).unwrap();
+
+        let first = Utc.with_ymd_and_hms(2026, 4, 26, 12, 0, 0).unwrap();
+        let week_starts: Vec<String> = (0..31)
+            .map(|i| first + Duration::weeks(i))
+            .map(|s| {
+                insert_period(
+                    &conn,
+                    GUILD,
+                    &format_datetime(&s),
+                    &format_datetime(&(s + Duration::weeks(1))),
+                )
+                .unwrap();
+                format_datetime(&s)
+            })
+            .collect();
+
+        let prod = [
+            (
+                1u64,
+                2,
+                "2026-05-10T12:00:00+00:00",
+                vec!["2026-05-10", "2026-05-17"],
+            ),
+            (
+                2,
+                4,
+                "2026-05-03T12:00:00+00:00",
+                vec!["2026-05-03", "2026-05-10", "2026-05-17", "2026-05-24"],
+            ),
+            (3, 1, "2026-05-10T12:00:00+00:00", vec!["2026-05-10"]),
+            (
+                4,
+                2,
+                "2026-08-30T12:00:00+00:00",
+                vec!["2026-08-30", "2026-09-06"],
+            ),
+            (5, 1, "2026-11-08T12:00:00+00:00", vec!["2026-11-08"]),
+            (6, 1, "2026-11-08T12:00:00+00:00", vec!["2026-11-08"]),
+        ];
+
+        for (user, weeks, start, expected) in prod {
+            let start_dt = parse_datetime(start).unwrap();
+            let end_dt = start_dt + Duration::weeks(weeks);
+            let id = insert_loa_request(
+                &conn,
+                GUILD,
+                user,
+                start,
+                weeks,
+                99,
+                start,
+                start,
+                &format_datetime(&end_dt),
+                None,
+            )
+            .unwrap();
+            resolve_loa(&conn, id, "approved").unwrap();
+
+            let shown: Vec<String> = covered_weeks(start_dt, end_dt)
+                .iter()
+                .map(|(s, _)| s.format("%Y-%m-%d").to_string())
+                .collect();
+            let exempted: Vec<String> = week_starts
+                .iter()
+                .filter(|ws| {
+                    get_active_loa_for_user(&conn, GUILD, user, ws)
+                        .unwrap()
+                        .is_some()
+                })
+                .map(|ws| ws[..10].to_string())
+                .collect();
+
+            assert_eq!(
+                shown, expected,
+                "user {user}: weeks shown in the request message"
+            );
+            assert_eq!(
+                exempted, expected,
+                "user {user}: weeks exempted by rollover/summary"
+            );
+        }
+    }
+
+    #[test]
+    fn reevaluate_loa_fixes_wrong_exemptions_and_totals_and_is_idempotent() {
+        let (db, loa_week) = setup(2);
+        let conn = db.conn();
+        let next_week =
+            insert_period(&conn, GUILD, "2025-06-08T12:00:00Z", "2025-06-15T12:00:00Z").unwrap();
+        let id = insert_loa_request(
+            &conn,
+            GUILD,
+            USER,
+            "t",
+            1,
+            99,
+            "t",
+            "2025-06-01T12:00:00+00:00",
+            "2025-06-08T12:00:00+00:00",
+            None,
+        )
+        .unwrap();
+        resolve_loa(&conn, id, "approved").unwrap();
+
+        rolled_over_miss(&conn, loa_week, 0, false);
+        rolled_over_miss(&conn, next_week, 2, true);
+        assert_eq!(totals(&conn), (2, 0, 1));
+
+        let loa_start = "2025-06-01T12:00:00Z";
+        let next_start = "2025-06-08T12:00:00Z";
+        assert_eq!(
+            reevaluate_period_loa(&conn, GUILD, loa_week, loa_start, USER, false, false).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            reevaluate_period_loa(&conn, GUILD, next_week, next_start, USER, false, true).unwrap(),
+            Some(false)
+        );
+        assert_eq!(result(&conn, loa_week), Some((0, false, true)));
+        assert_eq!(result(&conn, next_week), Some((2, true, false)));
+        assert_eq!(totals(&conn), (2, 1, 0));
+
+        assert_eq!(
+            reevaluate_period_loa(&conn, GUILD, loa_week, loa_start, USER, false, true).unwrap(),
+            None
+        );
+        assert_eq!(
+            reevaluate_period_loa(&conn, GUILD, next_week, next_start, USER, true, false).unwrap(),
+            None
+        );
         assert_eq!(totals(&conn), (2, 1, 0));
     }
 

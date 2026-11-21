@@ -46,6 +46,10 @@ pub fn format_datetime(dt: &DateTime<Utc>) -> String {
     dt.to_rfc3339()
 }
 
+pub fn format_utc_short(dt: &DateTime<Utc>) -> String {
+    dt.format("%a %b %-d %H:%M UTC").to_string()
+}
+
 /// Parse a datetime from SQLite storage
 pub fn parse_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc))
